@@ -249,6 +249,19 @@ else
 fi
 docker rm -f "${DEFAULT_NAME}" >/dev/null 2>&1 || true
 
+# 4c2 — builtin without a password must refuse to start (no silent generation)
+NOPW_OUT="$(timeout 30 docker run --rm \
+    --env 'ALLOWED_CLIENTS=127.0.0.1,172.16.0.0/12' \
+    --env 'AUTH_MODE=builtin' \
+    --volume "${WORKDIR}/data-nopw:/data" \
+    --volume "${WORKDIR}/workspace-nopw:/workspace" \
+    "${IMAGE}" 2>&1 || true)"
+if grep --quiet 'AUTH_MODE=builtin requires a password' <<<"${NOPW_OUT}"; then
+    pass 'builtin without a password refuses to start with an actionable message'
+else
+    fail "builtin without a password did not fail with the expected message: ${NOPW_OUT:0:300}"
+fi
+
 # 4d — the user name is a setting (the template ships it as a required field). A login
 # prompt that asks for a name nobody can find is the failure this guards against.
 USER_NAME="${NAME}-username"

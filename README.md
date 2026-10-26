@@ -41,6 +41,7 @@ docker logs dsh | grep -i password
 ```bash
 docker run -d --name dsh --restart unless-stopped -p 8080:8080 \
   -e ALLOWED_CLIENTS=127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,100.64.0.0/10,fc00::/7,fe80::/10 \
+  -e DSH_PASSWORD='change-this-password' \
   -v "$PWD/dsh/data:/data" \
   -v "$PWD/dsh/workspace:/workspace" \
   --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
@@ -67,7 +68,7 @@ DeepSeek account.
 | `DSH_TRUSTED_HOSTS` | empty | Extra accepted `host[:port]` authorities, comma separated; only used together with `PUBLIC_URL`. |
 | `TRUSTED_PROXY_CIDRS` | empty | Only when a reverse proxy is in front: Caddy then reads `X-Forwarded-For` from these peers only, so `ALLOWED_CLIENTS` sees the real client address. |
 | `AUTH_MODE` | `builtin` | `builtin` = password gate inside the container; `none` = your proxy authenticates. Any other value refuses to start. |
-| `DSH_PASSWORD` | unset | Password for the built-in gate (or `DSH_PASSWORD_FILE`). Unset = generated on first start, printed once. |
+| `DSH_PASSWORD` | unset | Password for the built-in gate (or `DSH_PASSWORD_FILE`). **Required when `AUTH_MODE=builtin`**; set it, or set `AUTH_MODE=none` behind an authenticating proxy. |
 | `AUTH_USER` | `dsh` | User name for the built-in gate. |
 | `REMOTE_SIGNIN` | `on` | DeepSeek **account** sign-in from a remote browser: loads [dsh-remote-signin](https://github.com/MeiXu6693/dsh-remote-signin), which puts the paste panel into the page. `off` = upstream's loopback-only behaviour. |
 | `PUID` · `PGID` | `1000` · `1000` | The uid:gid everything runs as, and the ownership the writable paths are handed to at start. Match whatever already owns your `/data`; **on Unraid that is `99` · `100`** (see [On Unraid](#on-unraid)). |

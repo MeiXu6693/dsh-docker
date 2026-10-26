@@ -19,6 +19,9 @@ services:
       # freshly published port safe); none = an authenticating reverse proxy or a
       # trusted network is in front of it. Any other value refuses to start.
       AUTH_MODE: ${AUTH_MODE:-builtin}
+      # Required when AUTH_MODE=builtin: the container refuses to start without it.
+      # Set DSH_PASSWORD in .env, or set AUTH_MODE=none behind an authenticating proxy.
+      DSH_PASSWORD: ${DSH_PASSWORD:-}
       # Leave empty for a trusted LAN; set https://your.host when an
       # authenticating reverse proxy fronts this container.
       PUBLIC_URL: ${PUBLIC_URL:-}
