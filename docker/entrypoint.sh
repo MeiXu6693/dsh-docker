@@ -22,9 +22,9 @@
 #          fence still rejects Sec-Fetch-Site: cross-site.
 #
 # AUTH_MODE decides who guards the UI:
-#   builtin (default) : the container's own password gate. The password comes from
-#                       DSH_PASSWORD or DSH_PASSWORD_FILE, or is generated and
-#                       printed once at startup.
+#   builtin (default) : the container's own password gate. The password must come
+#                       from DSH_PASSWORD or DSH_PASSWORD_FILE; a builtin gate with
+#                       neither refuses to start.
 #   none              : authentication belongs to the edge proxy (SWAG/Authelia,
 #                       VPN, ...) or to a trusted network.
 # Anything else fails closed.
@@ -68,8 +68,8 @@ DSH_PASSWORD_FILE="${DSH_PASSWORD_FILE:-}"
 # default so that a fresh install has a working login. It is public, so it protects
 # nothing until it is changed; the entrypoint therefore says so at every start (and
 # the README and that template's description tell the operator to change it). A
-# compose/CLI deployment is better off leaving DSH_PASSWORD unset, in which case a
-# random password is generated instead.
+# compose/CLI deployment must set DSH_PASSWORD (or DSH_PASSWORD_FILE), or set
+# AUTH_MODE=none when an authenticating proxy fronts it.
 DEFAULT_TEMPLATE_PASSWORD="12345678"
 DSH_HOME="${DSH_HOME:-/data/dsh}"
 DSH_AGENTS_HOME="${DSH_AGENTS_HOME:-${DSH_HOME}/agents}"
@@ -478,8 +478,7 @@ if [[ "${AUTH_MODE}" == "builtin" ]]; then
         password="${DSH_PASSWORD}"
         password_source="DSH_PASSWORD"
     else
-        password="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(12).toString("base64url"))')"
-        password_source="generated"
+        fatal "AUTH_MODE=builtin requires a password: set DSH_PASSWORD or DSH_PASSWORD_FILE, or set AUTH_MODE=none when an authenticating proxy is in front"
     fi
     (( ${#password} >= 8 )) || fatal "the password must be at least 8 characters (got ${#password}); set DSH_PASSWORD or DSH_PASSWORD_FILE"
     [[ ! "${password}" =~ [[:space:]] ]] || fatal "the password must not contain whitespace"
@@ -521,12 +520,7 @@ if [[ "${AUTH_MODE}" == "builtin" ]]; then
         '	}'
     )
 
-    if [[ "${password_source}" == "generated" ]]; then
-        log "authentication: built-in password gate, user '${AUTH_USER}' — GENERATED PASSWORD: ${password}"
-        log "                save it now; set DSH_PASSWORD (or DSH_PASSWORD_FILE) to choose your own"
-    else
-        log "authentication: built-in password gate, user '${AUTH_USER}' (password from ${password_source})"
-    fi
+    log "authentication: built-in password gate, user '${AUTH_USER}' (password from ${password_source})"
     if [[ "${password}" == "${DEFAULT_TEMPLATE_PASSWORD}" ]]; then
         warn "SECURITY: 口令仍是默认值 '${DEFAULT_TEMPLATE_PASSWORD}'（公开值）。任何能访问本端口的人都能操作你的智能体：在 ${DSH_WORKSPACE} 里执行命令、读取 ${DSH_HOME} 里的凭据。请在容器设置里改 Password / DSH_PASSWORD（用户名是 '${AUTH_USER}'）。"
         warn "SECURITY: the password is still the default '${DEFAULT_TEMPLATE_PASSWORD}', which is public. Anybody who can reach this port can drive the agent: run commands in ${DSH_WORKSPACE}, read the credentials in ${DSH_HOME}. Change the Password setting (DSH_PASSWORD) in the container settings (user name: '${AUTH_USER}')."
