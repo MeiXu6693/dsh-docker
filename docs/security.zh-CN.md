@@ -63,6 +63,30 @@ lan 模式**没有**"对外 authority"的概念，所以它无法为公网访问
 - **注入安全响应头**：CSP、`X-Frame-Options: DENY`、`Referrer-Policy`、`X-Content-Type-Options` 等。
 - **登录引导**：把 DSH 启动时打印的一次性 token 用内部重写交给首次访问者，换取签名会话 cookie（`dsh-auth-*`）。浏览器地址栏里不会出现 token。
 
+## 响应压缩
+
+两种模式共用 `docker/Caddyfile.common`。gzip 级别为 5，仅处理至少 1024 字节的成功（200）
+响应，并使用路径与 MIME 白名单：选定静态资源、插件脚本和只读会话列表。请求限 GET，
+另允许 `POST /api/session/list`。其他 POST 路径、HTML、凭据与令牌 API、错误响应、
+Range 请求、事件流及 WebSocket 升级不在策略范围内。已有上游压缩会保留，不重复压缩。
+完整策略见[架构说明](architecture.zh-CN.md#响应压缩)。
+
+该策略不增加响应缓存，也不缓存认证结果；每次实际网络请求仍经过既有门禁与访问检查。
+会话列表用 `Cache-Control: private, no-store` 覆盖上游缓存头。其他资源保留缓存策略与
+验证器，通过 `Vary: Accept-Encoding` 区分压缩表示。后端正确更新 ETag 后，重新验证能获得
+新内容；但尚未过期的浏览器缓存仍可能返回同 URL 的旧资源，因此静态资源应使用版本化 URL。
+`no-store` 不会清除浏览器状态、Service Worker 或应用已经保存的数据。
+
+**剩余风险：** HTTPS 压缩可能在秘密与攻击者可控文本混合时，通过响应长度泄露信息（BREACH）。
+排除登录 HTML 和凭据端点能缩小暴露范围，但不能证明所有压缩响应均安全。会话元数据可能敏感，
+而其列表仍参与压缩。上游改变响应内容或路径后，需要重新评估白名单；如果秘密与攻击者可控
+文本开始混合，应在 Caddy、上游及外层代理所有压缩层排除相关路由。`no-store` 与身份认证
+不能消除此侧信道。LAN 模式保持受信网络限定，edge 模式保留 Origin 检查。参考
+[HTTP gzip 安全提示](https://nginx.org/en/docs/http/ngx_http_gzip_module.html)。
+
+压缩用 CPU 开销换取更少传输字节，不应仅为提高测速成绩将范围扩大到全部 API。
+集成验证覆盖后端内容变化、会话撤销、私有缓存头与跨来源拒绝；这些检查不能证明不存在压缩侧信道。
+
 ## 容器本身
 
 - 以 uid/gid `1000` 运行（镜像内的非 root 账户），启动时把 `/data`、`/workspace` 的属主调整为 `1000:1000` 再降权。

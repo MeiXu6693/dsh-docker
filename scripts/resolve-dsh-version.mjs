@@ -15,7 +15,7 @@
  * Output (stdout): one `key=value` line per fact, suitable for $GITHUB_OUTPUT.
  *   version=<highest semver published>
  *   stable=<highest semver without a prerelease suffix, or empty>
- *   node=<engines.node of that version, normalized to x.y.z, or empty>
+ *   node=<engines.node exact version, or project fallback>
  *   dist_tags=<comma separated tag:version pairs>
  *
  * Flags:
@@ -23,7 +23,7 @@
  *   --pick=all|stable   which version to report as `version` (default: all)
  *   --json              print a JSON object instead of key=value lines
  *   --registry=<url>    npm registry to query (default: https://registry.npmjs.org)
- *   --fallback-node=…   engines.node value to use when upstream gives a range
+ *   --fallback-node=…   Node version to use when upstream gives a range or no version
  */
 import process from 'node:process'
 

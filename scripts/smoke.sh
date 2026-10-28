@@ -678,6 +678,23 @@ for config in edge lan; do
     fi
 done
 
+# Exercise the same encoding policy in both modes against a controlled upstream.
+# The test runs inside this disposable smoke container and starts its own Caddy
+# listeners on loopback, so it needs neither another image nor production volumes.
+ENCODING_GATE_CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
+    --header 'Accept-Encoding: gzip' "http://127.0.0.1:${PORT}/assets/compression-gate-probe.js" || true)"
+if [[ "${ENCODING_GATE_CODE}" == '401' ]]; then
+    pass 'compressible asset paths still require the password gate'
+else
+    fail "compressible asset path returned ${ENCODING_GATE_CODE} without credentials, expected 401"
+fi
+if docker exec --interactive --env CADDY_TEMPLATE_DIR=/etc/caddy \
+    "${NAME}" node --input-type=module - < "$(dirname "$0")/test-proxy-compression.mjs"; then
+    pass 'shared compression preserves response bodies, cache validation, ranges and streaming'
+else
+    fail 'shared proxy compression regression'
+fi
+
 if [[ "${FAILURES}" -ne 0 ]]; then
     printf '\n%s check(s) failed; container log follows\n' "${FAILURES}"
     docker logs "${NAME}" || true
@@ -757,6 +774,7 @@ if docker network create "${AC_NET}" >/dev/null 2>&1; then
         --volume "${WORKDIR}/data-ac:/data" \
         --volume "${WORKDIR}/workspace-ac:/workspace" \
         --env 'ALLOWED_CLIENTS=127.0.0.1' \
+        --env "DSH_PASSWORD=${SMOKE_PASSWORD}" \
         "${IMAGE}" >/dev/null
 
     ac_ready=0
@@ -790,6 +808,7 @@ if docker network create "${AC_NET}" >/dev/null 2>&1; then
             --volume "${WORKDIR}/data-ac:/data" \
             --volume "${WORKDIR}/workspace-ac:/workspace" \
             --env "ALLOWED_CLIENTS=127.0.0.1,${CLIENT_CIDR}" \
+            --env "DSH_PASSWORD=${SMOKE_PASSWORD}" \
             "${IMAGE}" >/dev/null
         for _ in $(seq 1 60); do
             docker exec "${AC_NAME}" curl --silent --fail --max-time 3 http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
@@ -809,6 +828,11 @@ if docker network create "${AC_NET}" >/dev/null 2>&1; then
     docker network rm "${AC_NET}" >/dev/null 2>&1 || true
 else
     printf 'skip access-control check: could not create a test network\n'
+fi
+
+if [[ "${FAILURES}" -ne 0 ]]; then
+    printf '\n%s check(s) failed\n' "${FAILURES}"
+    exit 1
 fi
 
 printf '\nall smoke checks passed\n'

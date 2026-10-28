@@ -1,0 +1,34 @@
+# Shared by LAN and edge mode. Keep request routing, authentication and
+# Host/Origin handling in their mode-specific Caddyfiles.
+(dsh_response_encoding) {
+	# Session metadata is private. Apply this after upstream headers so an
+	# application update cannot accidentally make the list publicly cacheable.
+	@dsh_session_list path /api/session/list
+	header @dsh_session_list >Cache-Control "private, no-store"
+
+	@dsh_compressible {
+		expression `method('GET') || (method('POST') && path('/api/session/list'))`
+		path /assets/* /plugins/* /remote-signin/inpage.js /dsh-deployment.js /api/session/list
+		not header Range *
+		not header Upgrade *
+	}
+
+	# Dynamic plugin bundles and the session list are not always encoded by DSH.
+	# Leave small responses, errors, HTML, event streams and binary downloads alone.
+	# Caddy preserves an existing Content-Encoding instead of encoding it twice.
+	encode @dsh_compressible {
+		gzip 5
+		minimum_length 1024
+		match {
+			status 200
+			header Content-Type application/javascript*
+			header Content-Type text/javascript*
+			header Content-Type text/css*
+			header Content-Type application/json*
+			header Content-Type application/wasm*
+			header Content-Type image/svg+xml*
+			header Content-Type font/ttf*
+			header Content-Type font/otf*
+		}
+	}
+}

@@ -29,9 +29,9 @@ ARG CADDY_VERSION=2.11.7
 FROM node:${NODE_VERSION}-bookworm-slim AS deps
 ARG DSH_VERSION
 # The remote sign-in plugin has its own repository and its own release schedule
-# (github.com/MeiXu6693/dsh-remote-signin). It is pinned to a tag on purpose: a build
-# of this image must get the plugin version this Dockerfile was tested with, and the
-# plugin's own CI is what validates it.
+# (github.com/MeiXu6693/dsh-remote-signin). Release CI resolves its newest stable
+# tag once and passes it to both verification and publishing. This default is for
+# direct local builds; the image smoke suite validates the selected plugin.
 #
 # The spec is the tag's tarball URL, not a git URL, for two measured reasons:
 #   * the "github:owner/repo#tag" shorthand had npm resolve to ssh://git@github.com and
@@ -99,6 +99,7 @@ FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 
 ARG DSH_VERSION
 ARG CADDY_VERSION
+ARG REMOTE_SIGNIN_VERSION=v0.2.1
 ARG DSH_REVISION=1
 ARG SOURCE_REPO=dsh-docker
 
@@ -144,7 +145,7 @@ RUN set -eux; \
 COPY --from=deps /app /app
 COPY --from=caddy /usr/local/bin/caddy /usr/local/bin/caddy
 COPY docker/entrypoint.sh docker/healthcheck.sh /usr/local/bin/
-COPY docker/Caddyfile.edge docker/Caddyfile.lan /etc/caddy/
+COPY docker/Caddyfile.edge docker/Caddyfile.lan docker/Caddyfile.common /etc/caddy/
 # The patch layer that loads the remote sign-in plugin while REMOTE_SIGNIN=on. It
 # names the plugin by absolute path because the launcher resolves entry names from the
 # installation and the profile, and neither holds a plugin this image installs — see
@@ -167,13 +168,16 @@ RUN set -eux; \
     npm install --global --no-audit --no-fund "pnpm@${PNPM_VERSION}"; \
     pnpm --version; \
     rm -rf /root/.npm; \
-    printf 'DSH_VERSION=%s\nCADDY_VERSION=%s\n' "${DSH_VERSION}" "${CADDY_VERSION}" > /etc/dsh-version; \
+    printf 'DSH_VERSION=%s\nCADDY_VERSION=%s\nREMOTE_SIGNIN_VERSION=%s\n' "${DSH_VERSION}" "${CADDY_VERSION}" "${REMOTE_SIGNIN_VERSION}" > /etc/dsh-version; \
     mkdir -p /data/dsh/agents /workspace; \
     chown -R 1000:1000 /data /workspace; \
     mkdir -p /home/node/.npm; \
     chown -R 1000:1000 /home/node; \
     ln -sfn /workspace /home/node/workspace; \
     chown -h 1000:1000 /home/node/workspace
+
+# Keep metadata-only changes separate from the package installation layer.
+RUN printf 'DSH_REVISION=%s\n' "${DSH_REVISION}" >> /etc/dsh-version
 
 # The ownership above is the build-time default identity (1000:1000), and it no longer
 # has to be the runtime one: PUID/PGID choose who the container runs as, and the

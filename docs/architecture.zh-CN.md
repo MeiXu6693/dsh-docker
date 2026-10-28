@@ -20,3 +20,34 @@
 - **明文 HTTP 上的口令在公网上不安全。** 门禁保护的是应用而不是链路：对外暴露前，请在它前面终止 TLS。细节见 [security.zh-CN.md](security.zh-CN.md)。
 
 前两条背后的规则——两种模式、Host/Origin 的处理、白名单——见 [security.zh-CN.md](security.zh-CN.md)；沙箱的两条腿见 [sandbox.zh-CN.md](sandbox.zh-CN.md)。
+
+## 响应压缩
+
+两种模式都导入 `/etc/caddy/Caddyfile.common`。共用策略会为 `/assets/`、`/plugins/`、
+远程登录脚本、部署脚本中成功的 GET 响应，以及只读 `/api/session/list` 的 GET/POST 响应
+协商 gzip（浏览器实际使用 POST），最小体积为 1024 字节，并明确限制为 JavaScript、CSS、
+JSON、SVG、WASM 与未压缩字体的 MIME 类型。
+这覆盖了运行时生成、上游可能没有预压缩版本的插件脚本；上游已经编码的响应直接透传。
+
+HTML 和其他 API 路径沿用原处理。Range 请求、WebSocket 升级、事件流、错误响应和二进制
+下载不参与压缩；此策略不增加缓存，也不改变认证、Host/Origin 校验或端口。Caddy 的 HTTP
+传输本身已默认复用上游连接。
+
+静态资源原有的缓存头保持不变；私有会话列表明确设置 `Cache-Control: private, no-store`，
+即使上游错误地声明可缓存也会覆盖。
+
+外层反向代理需要保留 `Accept-Encoding`，内置压缩才能协商成功。如果外层为修改响应正文
+清空了该头，应由外层负责压缩修改后的响应。机制见 Caddy 的
+[encode](https://caddyserver.com/docs/caddyfile/directives/encode) 和
+[reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy) 文档。
+
+`scripts/test-proxy-compression.mjs` 会用受控回环上游运行两份生产 Caddyfile，检查解压后
+正文一致、编码协商、后端变化后的条件请求、携带旧校验器时的会话失效、字节范围、
+上游已编码响应、SSE 交付及 WebSocket 帧。
+PR 验证使用固定版本的 Caddy 二进制运行它；镜像冒烟在一次性测试容器内运行同一组断言，
+让发布验证也覆盖这些行为。
+
+内容更新仍依赖应用的校验器和资源 URL：后端变化后旧 ETag 应得到新的 200 响应；会话
+失效后即使客户端携带旧 ETag，也应得到认证错误。压缩不能修正应用复用 immutable URL
+或返回错误校验器的问题。登录 HTML 和凭据/令牌 API 不在压缩白名单内，以限制压缩侧
+信道的暴露；如果上游未来在会话列表中混合秘密与攻击者可控文本，需要重新评估此例外。

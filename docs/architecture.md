@@ -20,3 +20,42 @@ browser ──▶ :8080  Caddy (bundled)  ──▶ 127.0.0.1:3080  DSH
 - **A password over plain HTTP is not safe on the internet.** The gate protects the app, not the wire: terminate TLS in whatever you put in front before exposing this. Details: [security.md](security.md).
 
 The rules behind the first two bullets — the two modes, Host/Origin handling and the allowlist — are in [security.md](security.md); the sandbox's two legs are in [sandbox.md](sandbox.md).
+
+## Response compression
+
+Both modes import `/etc/caddy/Caddyfile.common`. Its shared policy negotiates gzip
+for successful responses of at least 1024 bytes: GET requests under `/assets/`,
+`/plugins/`, the remote-sign-in and deployment scripts, and GET/POST requests to the
+read-only `/api/session/list` endpoint (the browser uses POST). It uses an
+explicit allowlist of JavaScript, CSS, JSON, SVG, WASM and uncompressed font MIME
+types. These include plugin bundles generated at runtime, which may not have a
+precompressed upstream representation. Existing encoded responses pass through.
+
+HTML and other API paths retain their existing handling. Range requests, WebSocket
+upgrades, event streams, error responses and binary downloads are excluded; the
+policy does not add a cache or change authentication, Host/Origin checks or ports.
+Static cache headers are preserved; the private session list is explicitly marked
+`Cache-Control: private, no-store`, overriding even a cacheable upstream response.
+Caddy's HTTP transport already reuses upstream connections by default.
+
+An outer reverse proxy must preserve `Accept-Encoding` for this negotiation to
+work. If it clears that header to rewrite response bodies, it must compress the
+rewritten response itself. See Caddy's [encode](https://caddyserver.com/docs/caddyfile/directives/encode)
+and [reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy) documentation.
+
+`scripts/test-proxy-compression.mjs` runs both production Caddyfiles against a
+controlled loopback upstream. It checks decoded body equality, encoding
+negotiation, cache validation after backend changes, session revocation with an
+old validator, ranges, an already encoded upstream, SSE delivery
+and WebSocket frames. PR validation runs it with the pinned Caddy binary; image
+smoke tests run it inside the disposable image so release verification uses the
+same assertions.
+
+Content updates still depend on the application's validators and asset URLs. An
+old ETag must produce a new 200 response when the backend changes; a revoked
+session must produce an authentication error even when a client sends an old ETag.
+Compression cannot correct an application that reuses an immutable asset URL or
+an incorrect validator. Login HTML and credential/token APIs are outside the
+encoding allowlist, limiting compression side-channel exposure; reassess the
+session-list exception if a future upstream mixes secrets with attacker-controlled
+text in that response.

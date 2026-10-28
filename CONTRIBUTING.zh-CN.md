@@ -21,6 +21,7 @@ Applications 模板、图标、CA 提交说明与迁移指南——在
 │   ├── entrypoint.sh          # 校验环境变量、准备卷、选模式、拉起 Caddy + DSH
 │   ├── Caddyfile.edge         # 设置了 PUBLIC_URL：把 Host 改写成对外 authority，拒绝外来 Origin
 │   ├── Caddyfile.lan          # PUBLIC_URL 为空：把 Host 固定为回环，剥掉 Origin
+│   ├── Caddyfile.common       # 两种模式共用的响应压缩
 │   └── healthcheck.sh         # 容器 HEALTHCHECK
 ├── compose.yaml               # 非 Unraid 用户：与 CA 模板同一套设置
 ├── scripts/                   # 版本解析、依赖瘦身、静态闸门、冒烟测试
@@ -66,11 +67,14 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
 | `validate` | 每次 push / PR | 静态闸门 + shellcheck + hadolint + `caddy validate` + 脚本端到端 |
-| `release` | 每小时 :17、触及镜像的 push、手动 | 解析版本 → **静态闸门** → 构建 amd64 → 冒烟 → 推送 amd64+arm64（`:<版本>`、`:latest`、`:<通道>`）→ 建 `dsh-v<版本>` tag 与 Release |
+| `release` | 每小时 :17、触及镜像的 push、手动 | 解析版本 → **静态闸门** → 构建 amd64 → 冒烟 → 推送 amd64+arm64（首次 `:<版本>`、后续 `:<版本>-r<N>`；`:latest`、`:<通道>`）→ 建独立构建 tag 与 Release |
 
-Release tag 一律写成 `dsh-v<版本>`，与上游自己的命名一致（`deepseek-ai/deepseek-harness`
-的 Release 就是 `dsh-v0.2.1-alpha.5`），这样一个版本在两个仓库里拼写相同、可以直接互相粘贴。
-**镜像** tag 保持不带 `v`（`:0.2.1-alpha.5`），因为它对应的是构建所依据的 npm 版本号。
+首次构建完全使用上游版本：镜像 `:0.2.1-rc.4` 与 Release `dsh-v0.2.1-rc.4`。
+第二次追加 `-r1`，第三次追加 `-r2`；DSH 升版后重新从不带后缀开始。组件更新或强制重建
+递增计数。内部 `DSH_REVISION` 从 1 开始计数，因此后缀数字等于构建计数减一。
+下个计数取该 DSH 版本已记录的最大构建计数加一，按数字排序，包含草稿以避免冲突。
+创建 Release 记录之前失败不消耗计数；所有分支的发布任务串行执行。
+历史不带后缀的 Release 视为首次构建；缺少组件元数据时发布新的 `-r1`，保留历史记录。
 
 **闸门是共用的**：`release` 的 verify 步骤跑的就是 `validate` 用的那个 `scripts/check-static.sh`，
 所以**检查不过的提交什么都发不出去**（publish 与 release 两个 job 直接跳过）。两者曾经各自独立，
@@ -81,10 +85,36 @@ Release tag 一律写成 `dsh-v<版本>`，与上游自己的命名一致（`dee
 | 输入 | 说明 |
 |---|---|
 | `version` | 留空 = 自动解析最高版本；也可以指定确切版本 |
-| `force` | 勾选 = 即使 `dsh-v<版本>` tag 已存在也重建（重发同一版本，或改了 Dockerfile 后刷新镜像） |
+| `force` | 勾选 = 即使全部组件版本未变，也发布下一个构建序号 |
 
-对已发布的版本再跑一次会走**跳过分支**：`resolve` 看到 tag 已存在 → `build=false` → 后面全部跳过，
-不浪费构建时间。**只改本仓库文档或脚本的 push 不会重发任何东西**——要用 `force`。
+只有所选 DSH Release 已记录相同的 DSH、Node、Caddy 和远程登录插件版本时，才跳过构建。
+缺少组件元数据的历史 Release 会触发新的 `-r1` 构建。`force=true` 可在版本全未变时重建，例如发布代理
+配置修复；它不会禁用 Docker 层缓存。只改文档的 push 不触发 release。
+
+## 组件版本策略
+
+| 组件 | 发版时如何选择 |
+|---|---|
+| DSH | 已发布的最高 semver（含预发布），或手动 `version` 输入 |
+| Node | 上游 `engines.node` 指定的精确版本；版本范围或缺失时使用 `DEFAULT_NODE_VERSION=24.21.0` |
+| Caddy | `caddyserver/caddy` 最新稳定 GitHub Release，必须具备 Linux amd64 与 arm64 安装包 |
+| 远程登录插件 | `MeiXu6693/dsh-remote-signin` 的最高稳定 semver Git tag，排除预发布 tag（该项目目前未发布 GitHub Release） |
+| pnpm | Dockerfile 的 `PNPM_VERSION=12`，安装层执行时在主版本 12 内选择 |
+| 系统包与 npm 间接依赖 | 安装层执行时从软件源解析；命中构建缓存可能保留旧结果 |
+
+`scripts/resolve-component-versions.mjs` 每次发版只解析一次组件版本，将相同精确值传给
+验证和发布。API 错误或 Caddy 安装包不完整时停止，不静默回退旧版本。静态检查、两种模式
+的代理断言和完整镜像冒烟通过后才发布；上游接口变化因此可能阻止自动更新，需先修复兼容性。
+
+Release 说明记录组件版本及供下次比较的 `dsh-build-inputs` 标记，编辑说明时应保留该标记。
+每次成功发布新建构建标签及指向工作流提交的 Release，不编辑旧构建 Release、不移动已有
+Git tag。不带后缀的 DSH 镜像标签保留首次构建，只有 `latest` 与通道标签是移动别名。固定版本标签或
+镜像 digest 可复现部署；拉取镜像并重建容器后更新才生效。`/etc/dsh-version` 也记录构建序号。
+
+直接执行 `docker build` 仍使用 Dockerfile 中显式的 Caddy 与插件默认值，自动解析由发布 CI
+执行。本地复现某次发布时传入 `CADDY_VERSION` 和 `REMOTE_SIGNIN_VERSION` 构建参数。
+验证 CI 也会解析当前稳定 Caddy。运行时 Node 按上游精确版本要求更新，并经过相同镜像测试；
+调整兜底版本时，需显式同步修改项目默认值与 Dockerfile 默认值。
 
 ## 需要确认的仓库设置
 

@@ -22,6 +22,7 @@ tracks of a document having the same number of `##` sections and the same settin
 │   ├── entrypoint.sh          # validate env, prepare volumes, pick mode, start Caddy + DSH
 │   ├── Caddyfile.edge         # PUBLIC_URL set: rewrite Host to the public authority, reject foreign Origin
 │   ├── Caddyfile.lan          # PUBLIC_URL empty: pin Host to loopback, strip Origin
+│   ├── Caddyfile.common       # response encoding shared by both modes
 │   └── healthcheck.sh         # container HEALTHCHECK
 ├── compose.yaml               # non-Unraid users: the same settings as the CA template
 ├── scripts/                   # version resolution, dependency pruning, static gates, smoke test
@@ -69,12 +70,16 @@ version and takes the highest by semver; prereleases participate per the spec.
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `validate` | Every push and PR | Static gates + shellcheck + hadolint + `caddy validate` + script end-to-end |
-| `release` | Hourly cron (:17), pushes touching the image, manual | Resolve version → **static gates** → build amd64 → smoke → push amd64+arm64 (`:<version>`, `:latest`, `:<channel>`) → create the `dsh-v<version>` tag and Release |
+| `release` | Hourly cron (:17), pushes touching the image, manual | Resolve version → **static gates** → build amd64 → smoke → push amd64+arm64 (first `:<version>`, then `:<version>-r<N>`; `:latest`, `:<channel>`) → create a build-specific tag and Release |
 
-Release tags are spelled `dsh-v<version>` to match upstream's own scheme
-(`deepseek-ai/deepseek-harness` releases as `dsh-v0.2.1-alpha.5`), so one version reads
-the same in both repositories. The **image** tags stay un-prefixed (`:0.2.1-alpha.5`),
-because those mirror the npm version they were built from.
+The first build preserves the upstream version exactly: image `:0.2.1-rc.4` and Release
+`dsh-v0.2.1-rc.4`. The second build adds `-r1`, the third `-r2`; a new DSH version starts
+without a suffix. Component updates and forced builds increment the counter. Internally,
+`DSH_REVISION` counts builds from 1, so the suffix is revision minus one. The next counter
+is one above the highest recorded build for that DSH version, using numeric order and
+including drafts to avoid collisions. A failure before any Release is recorded does not
+consume a counter. Release runs are serialized across branches. Historical unsuffixed
+releases count as the first build; missing metadata triggers a new `-r1` build.
 
 **The gates are shared**: the verify step in `release` runs exactly the
 `scripts/check-static.sh` that `validate` uses, so **a commit that fails the checks
@@ -86,12 +91,43 @@ Manual release: Actions → `release` → *Run workflow*.
 | Input | Description |
 |---|---|
 | `version` | Empty = resolve the highest version automatically; you can also name an exact version |
-| `force` | Checked = rebuild even if the `dsh-v<version>` tag already exists (re-publishing the same version, or refreshing an image after a Dockerfile change) |
+| `force` | Checked = publish the next build revision even if all component versions are unchanged |
 
-Running it again for an already-published version takes the **skip branch**: `resolve`
-sees the tag already exists → `build=false` → everything after that is skipped, so no
-build time is wasted. **A push that only changes this repository's docs or scripts does
-not republish anything** — use `force`.
+A run skips building only when the selected DSH release already records the same DSH,
+Node, Caddy and remote sign-in versions. A legacy release without component metadata is
+followed by an `-r1` build. `force=true` also rebuilds unchanged inputs, for example to ship a proxy
+configuration fix without changing any component version. Force does not disable Docker's
+layer cache. Documentation-only pushes do not trigger release.
+
+## Component version policy
+
+| Component | Selection during release |
+|---|---|
+| DSH | Highest published semver, including prereleases, or the manual `version` input |
+| Node | Exact upstream `engines.node` when provided; ranges or missing values use `DEFAULT_NODE_VERSION=24.21.0` |
+| Caddy | Latest stable GitHub Release from `caddyserver/caddy`, with Linux amd64 and arm64 assets required |
+| Remote sign-in plugin | Highest stable semver Git tag from `MeiXu6693/dsh-remote-signin`; prerelease tags are excluded (the project does not currently publish GitHub Releases) |
+| pnpm | Dockerfile `PNPM_VERSION=12` selects within major 12 when its install layer runs |
+| OS packages and npm transitive dependencies | Resolve when install layers run; reused build cache can retain older results |
+
+`scripts/resolve-component-versions.mjs` resolves components once per release and passes
+the same exact values to verification and publishing. API errors or incomplete Caddy
+releases stop the run rather than silently selecting an older version. Static gates,
+both-mode proxy assertions and the full image smoke must pass before publication. Changes
+to upstream APIs can therefore block an automatic update until compatibility is restored.
+
+Release notes record the versions and a `dsh-build-inputs` marker for the next comparison;
+do not remove that marker when editing notes. Every published revision gets a new image
+tag and Release targeting the workflow commit. The workflow never edits a previous build
+Release or moves its Git tag. Only `latest` and channel tags are moving aliases; the unsuffixed DSH tag retains
+the first build. Pin a versioned tag or digest for reproducible deployment, and pull and
+recreate containers to apply updates. `/etc/dsh-version` records the build revision too.
+
+Direct `docker build` still uses the Dockerfile's explicit Caddy and plugin defaults;
+automatic selection is performed by release CI. Pass `CADDY_VERSION` and
+`REMOTE_SIGNIN_VERSION` build arguments to reproduce a selected release locally.
+Validation CI also resolves the current stable Caddy. Runtime Node follows exact upstream requirements through the same image tests. Changing
+the fallback requires updating the project default and Dockerfile default explicitly.
 
 ## Repository settings to confirm
 
