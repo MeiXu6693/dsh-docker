@@ -678,6 +678,16 @@ for config in edge lan; do
     fi
 done
 
+# Exercise the same encoding policy in both modes against a controlled upstream.
+# The test runs inside this disposable smoke container and starts its own Caddy
+# listeners on loopback, so it needs neither another image nor production volumes.
+if docker exec --interactive --env CADDY_TEMPLATE_DIR=/etc/caddy \
+    "${NAME}" node --input-type=module - < "$(dirname "$0")/test-proxy-compression.mjs"; then
+    pass 'shared compression preserves response bodies, cache validation, ranges and streaming'
+else
+    fail 'shared proxy compression regression'
+fi
+
 if [[ "${FAILURES}" -ne 0 ]]; then
     printf '\n%s check(s) failed; container log follows\n' "${FAILURES}"
     docker logs "${NAME}" || true

@@ -144,7 +144,7 @@ RUN set -eux; \
 COPY --from=deps /app /app
 COPY --from=caddy /usr/local/bin/caddy /usr/local/bin/caddy
 COPY docker/entrypoint.sh docker/healthcheck.sh /usr/local/bin/
-COPY docker/Caddyfile.edge docker/Caddyfile.lan /etc/caddy/
+COPY docker/Caddyfile.edge docker/Caddyfile.lan docker/Caddyfile.common /etc/caddy/
 # The patch layer that loads the remote sign-in plugin while REMOTE_SIGNIN=on. It
 # names the plugin by absolute path because the launcher resolves entry names from the
 # installation and the profile, and neither holds a plugin this image installs — see

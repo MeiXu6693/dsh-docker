@@ -21,6 +21,7 @@ Applications 模板、图标、CA 提交说明与迁移指南——在
 │   ├── entrypoint.sh          # 校验环境变量、准备卷、选模式、拉起 Caddy + DSH
 │   ├── Caddyfile.edge         # 设置了 PUBLIC_URL：把 Host 改写成对外 authority，拒绝外来 Origin
 │   ├── Caddyfile.lan          # PUBLIC_URL 为空：把 Host 固定为回环，剥掉 Origin
+│   ├── Caddyfile.common       # 两种模式共用的响应压缩
 │   └── healthcheck.sh         # 容器 HEALTHCHECK
 ├── compose.yaml               # 非 Unraid 用户：与 CA 模板同一套设置
 ├── scripts/                   # 版本解析、依赖瘦身、静态闸门、冒烟测试

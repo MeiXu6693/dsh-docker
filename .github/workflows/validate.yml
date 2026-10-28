@@ -47,16 +47,25 @@ jobs:
           set -euo pipefail
           for config in edge lan; do
             docker run --rm \
-              --volume "${PWD}/docker:/caddy:ro" \
+              --volume "${PWD}/docker:/etc/caddy:ro" \
               --env PORT=8080 \
               --env DSH_INTERNAL_PORT=3080 \
               --env PUBLIC_ORIGIN=https://validate.example \
               --env DSH_UPSTREAM_HOST=validate.example \
               --env DSH_LAUNCH_TOKEN=validate \
               --entrypoint caddy \
-              caddy:2.11.7 validate --config "/caddy/Caddyfile.${config}" --adapter caddyfile
+              caddy:2.11.7 validate --config "/etc/caddy/Caddyfile.${config}" --adapter caddyfile
             printf 'caddy validate ok: Caddyfile.%s\n' "${config}"
           done
+
+      - name: Proxy response compression
+        run: |
+          set -euo pipefail
+          # Reuse the pinned Caddy binary; the fixture only needs Node's standard library.
+          docker run --rm --entrypoint sh caddy:2.11.7 \
+            -c 'cat "$(command -v caddy)"' > "${RUNNER_TEMP}/dsh-caddy"
+          chmod +x "${RUNNER_TEMP}/dsh-caddy"
+          CADDY_BIN="${RUNNER_TEMP}/dsh-caddy" node scripts/test-proxy-compression.mjs
 
       - name: Scripts run end to end
         run: |

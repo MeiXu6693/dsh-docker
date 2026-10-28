@@ -16,6 +16,7 @@
 | Command sandbox on a kernel without Landlock (Unraid 7.x, some appliance kernels) | will not start | works — bubblewrap is bundled, the two `--security-opt` values are in [`compose.yaml`](compose.yaml) |
 | DeepSeek **account** sign-in from another machine | fails before the login page opens | built in, one paste step ([details](docs/remote-signin.md)) |
 | The CLIs your plugins shell out to | you put them on `PATH` | install under `/data`, [picked up at start](docs/extending.md) — and survive `docker pull` + recreate |
+| Larger frontend responses | depends on the server or proxy you configure | [shared gzip policy](docs/architecture.md#response-compression) for assets, plugin bundles and the session list in both modes |
 | Keeping up with upstream | your job | hourly: resolve → build amd64 + arm64 → smoke test → publish, and only if every check passes |
 
 **Known limits.** Single-user by design — there is no account database, so everyone who

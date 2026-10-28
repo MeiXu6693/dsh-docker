@@ -16,6 +16,7 @@
 | 没有 Landlock 的内核上（Unraid 7.x、部分设备内核）的命令沙箱 | 起不来 | 可用——内置 bubblewrap，[`compose.yaml`](compose.yaml) 里已带那两个 `--security-opt` |
 | 从另一台机器用 DeepSeek **账号**登录 | 登录页还没打开就失败 | 内置，只多一步粘贴（[说明](docs/remote-signin.zh-CN.md)） |
 | 插件要调用的命令行工具 | 自己挂到 `PATH` 上 | 装在 `/data` 下，[启动时自动挂上](docs/extending.zh-CN.md)，并扛过 `docker pull` 与重建 |
+| 较大的前端响应 | 取决于自行配置的服务或代理 | 两种模式共用 [gzip 策略](docs/architecture.zh-CN.md#响应压缩)，覆盖静态资源、插件脚本和会话列表 |
 | 跟随上游 | 你自己的活 | 每小时：取版本 → 构建 amd64 + arm64 → 冒烟 → 全绿才发布 |
 
 **已知限制。** 单用户设计——没有账户体系，能打开界面的人就是同一个工作区主人。从另一台机器用 DeepSeek **账号**登录要多一步粘贴（粘进页面自己弹出的面板），用 API Key 则完全不需要。镜像约 0.9 GB。

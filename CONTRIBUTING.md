@@ -22,6 +22,7 @@ tracks of a document having the same number of `##` sections and the same settin
 │   ├── entrypoint.sh          # validate env, prepare volumes, pick mode, start Caddy + DSH
 │   ├── Caddyfile.edge         # PUBLIC_URL set: rewrite Host to the public authority, reject foreign Origin
 │   ├── Caddyfile.lan          # PUBLIC_URL empty: pin Host to loopback, strip Origin
+│   ├── Caddyfile.common       # response encoding shared by both modes
 │   └── healthcheck.sh         # container HEALTHCHECK
 ├── compose.yaml               # non-Unraid users: the same settings as the CA template
 ├── scripts/                   # version resolution, dependency pruning, static gates, smoke test
