@@ -168,7 +168,7 @@ RUN set -eux; \
     npm install --global --no-audit --no-fund "pnpm@${PNPM_VERSION}"; \
     pnpm --version; \
     rm -rf /root/.npm; \
-    printf 'DSH_VERSION=%s\nCADDY_VERSION=%s\nREMOTE_SIGNIN_VERSION=%s\n' "${DSH_VERSION}" "${CADDY_VERSION}" "${REMOTE_SIGNIN_VERSION}" > /etc/dsh-version; \
+    printf 'DSH_VERSION=%s\nCADDY_VERSION=%s\nREMOTE_SIGNIN_VERSION=%s\nDSH_REVISION=%s\n' "${DSH_VERSION}" "${CADDY_VERSION}" "${REMOTE_SIGNIN_VERSION}" "${DSH_REVISION}" > /etc/dsh-version; \
     mkdir -p /data/dsh/agents /workspace; \
     chown -R 1000:1000 /data /workspace; \
     mkdir -p /home/node/.npm; \

@@ -70,12 +70,15 @@ version and takes the highest by semver; prereleases participate per the spec.
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `validate` | Every push and PR | Static gates + shellcheck + hadolint + `caddy validate` + script end-to-end |
-| `release` | Hourly cron (:17), pushes touching the image, manual | Resolve version → **static gates** → build amd64 → smoke → push amd64+arm64 (`:<version>`, `:latest`, `:<channel>`) → create the `dsh-v<version>` tag and Release |
+| `release` | Hourly cron (:17), pushes touching the image, manual | Resolve version → **static gates** → build amd64 → smoke → push amd64+arm64 (`:<version>-r<N>`, `:<version>`, `:latest`, `:<channel>`) → create a build-specific tag and Release |
 
-Release tags are spelled `dsh-v<version>` to match upstream's own scheme
-(`deepseek-ai/deepseek-harness` releases as `dsh-v0.2.1-alpha.5`), so one version reads
-the same in both repositories. The **image** tags stay un-prefixed (`:0.2.1-alpha.5`),
-because those mirror the npm version they were built from.
+The upstream version is preserved as the base; our build suffix is `-r<N>`. For example,
+DSH `0.2.1-rc.4` produces image `:0.2.1-rc.4-r1` and Release `dsh-v0.2.1-rc.4-r1`.
+A component update or forced build produces `r2`; a new DSH version starts at `r1`.
+The next revision is one above the highest recorded revision for that DSH version
+(numeric ordering, including drafts to avoid collisions). A failure before any Release
+is recorded does not consume a revision. Release runs are serialized across branches.
+Historical unsuffixed releases remain intact; the first revisioned build starts at `r1`.
 
 **The gates are shared**: the verify step in `release` runs exactly the
 `scripts/check-static.sh` that `validate` uses, so **a commit that fails the checks
@@ -87,11 +90,11 @@ Manual release: Actions → `release` → *Run workflow*.
 | Input | Description |
 |---|---|
 | `version` | Empty = resolve the highest version automatically; you can also name an exact version |
-| `force` | Checked = rebuild even if the `dsh-v<version>` tag already exists (re-publishing the same version, or refreshing an image after a Dockerfile change) |
+| `force` | Checked = publish the next build revision even if all component versions are unchanged |
 
 A run skips building only when the selected DSH release already records the same DSH,
-Node, Caddy and remote sign-in versions. A legacy release without component metadata is
-rebuilt once. `force=true` also rebuilds unchanged inputs, for example to ship a proxy
+Node, Caddy and remote sign-in versions. A legacy release without a revisioned build is
+followed by an `r1` build. `force=true` also rebuilds unchanged inputs, for example to ship a proxy
 configuration fix without changing any component version. Force does not disable Docker's
 layer cache. Documentation-only pushes do not trigger release.
 
@@ -100,7 +103,7 @@ layer cache. Documentation-only pushes do not trigger release.
 | Component | Selection during release |
 |---|---|
 | DSH | Highest published semver, including prereleases, or the manual `version` input |
-| Node | Project pin `DEFAULT_NODE_VERSION=24.21.0`; upstream `engines.node` is diagnostic only and cannot change the runtime version |
+| Node | Exact upstream `engines.node` when provided; ranges or missing values use `DEFAULT_NODE_VERSION=24.21.0` |
 | Caddy | Latest stable GitHub Release from `caddyserver/caddy`, with Linux amd64 and arm64 assets required |
 | Remote sign-in plugin | Highest stable semver Git tag from `MeiXu6693/dsh-remote-signin`; prerelease tags are excluded (the project does not currently publish GitHub Releases) |
 | pnpm | Dockerfile `PNPM_VERSION=12` selects within major 12 when its install layer runs |
@@ -113,16 +116,17 @@ both-mode proxy assertions and the full image smoke must pass before publication
 to upstream APIs can therefore block an automatic update until compatibility is restored.
 
 Release notes record the versions and a `dsh-build-inputs` marker for the next comparison;
-do not remove that marker when editing notes. A component-only update republishes the
-existing DSH image tags and updates its Release notes without moving the existing Git tag.
-Use an image digest for an immutable deployment, and use the workflow commit plus recorded
-component versions to audit a rebuild. Pull and recreate containers to apply updates.
+do not remove that marker when editing notes. Every published revision gets a new image
+tag and Release targeting the workflow commit. The workflow never edits a previous build
+Release or moves its Git tag. The unsuffixed DSH image tag, `latest` and channel tags are
+moving aliases. Pin a revision tag or digest for reproducible deployment, and pull and
+recreate containers to apply updates. `/etc/dsh-version` records the build revision too.
 
 Direct `docker build` still uses the Dockerfile's explicit Caddy and plugin defaults;
 automatic selection is performed by release CI. Pass `CADDY_VERSION` and
 `REMOTE_SIGNIN_VERSION` build arguments to reproduce a selected release locally.
-Validation CI also resolves the current stable Caddy. Runtime Node changes require an
-explicit update to the project pin and Dockerfile default, followed by the image tests.
+Validation CI also resolves the current stable Caddy. Runtime Node follows exact upstream requirements through the same image tests. Changing
+the fallback requires updating the project default and Dockerfile default explicitly.
 
 ## Repository settings to confirm
 

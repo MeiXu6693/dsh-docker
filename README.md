@@ -113,10 +113,11 @@ Everything in `/data` and `/workspace` survives.
 | Tag | Meaning |
 |---|---|
 | `:latest` | Newest build, upstream prereleases included |
-| `:0.2.1-alpha.5` | Pin an exact version |
+| `:0.2.1-alpha.5-r1` | Pin one published image build |
+| `:0.2.1-alpha.5` | Follow the newest build of this DSH version |
 | `:alpha` · `:rc` · `:stable` | Follow one upstream channel |
 
-An hourly job checks upstream, rebuilds and smoke-tests the image, and publishes only when the checks pass. Upstream currently ships alpha/rc builds, so `:latest` moves often — pin a version tag if you would rather update on your own schedule.
+An hourly job checks upstream, rebuilds and smoke-tests the image, and publishes only when the checks pass. Upstream currently ships alpha/rc builds, so `:latest` moves often — pin a build revision tag if you would rather update on your own schedule.
 
 The shared compression policy takes effect after pulling an image that contains it and
 recreating the container; no new setting or dependency is required. It reduces transfer
@@ -128,9 +129,12 @@ existing static-resource cache policies and authentication remain in place.
 **Component updates.** The hourly release workflow follows DSH, Caddy's latest stable
 GitHub Release and the remote sign-in plugin's highest stable Git tag. A component change
 triggers a rebuild even when DSH is unchanged; verification must pass before publishing.
-Runtime Node stays pinned to `24.21.0`, independent of upstream's `engines.node`.
-The same DSH image tag may therefore be republished with newer components; pin an image
-digest for immutable deployments. See the [component version policy](CONTRIBUTING.md#component-version-policy).
+Runtime Node follows an exact upstream `engines.node`; ranges or missing requirements
+use the project fallback (`24.21.0`).
+Each publication adds a build suffix: `0.2.1-rc.4-r1`, then `0.2.1-rc.4-r2`.
+A new DSH version starts at `r1`; component updates and forced rebuilds advance the suffix.
+Each build has its own image tag and GitHub Release. The unsuffixed DSH tag, `latest` and
+channel tags follow the newest build; pin a revision tag or digest to retain one build. See the [component version policy](CONTRIBUTING.md#component-version-policy).
 
 ## Security
 

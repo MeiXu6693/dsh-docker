@@ -37,9 +37,29 @@ export async function resolveComponents({ dsh, node, repository, force = false, 
   if (!tags.length) throw new Error('No stable remote sign-in tag found')
   const remoteSignin = tags[0]
   const inputs = Buffer.from(JSON.stringify({ dsh, node, caddy, remote_signin: remoteSignin })).toString('base64url')
-  const published = await request(`/repos/${repository}/releases/tags/dsh-v${dsh}`, true)
+  // Each published build gets its own release; aliases may move, revision tags do not.
+  const prefix = `dsh-v${dsh}-r`
+  const releases = []
+  for (let page = 1; ; page++) {
+    if (page > 100) throw new Error('Release pagination limit reached')
+    const batch = await request(`/repos/${repository}/releases?per_page=100&page=${page}`)
+    if (!Array.isArray(batch)) throw new Error('Invalid releases response')
+    releases.push(...batch)
+    if (batch.length < 100) break
+  }
+  const revisions = releases.filter(item => item.tag_name?.startsWith(prefix))
+    .map(item => ({ ...item, revision: Number(item.tag_name.slice(prefix.length)) }))
+    .filter(item => Number.isSafeInteger(item.revision) && item.revision > 0 && item.tag_name === `${prefix}${item.revision}`)
+    .sort((a, b) => b.revision - a.revision)
+  const published = revisions.find(item => !item.draft)
   const previous = published?.body?.match(/<!-- dsh-build-inputs: ([A-Za-z0-9_-]+) -->/)?.[1]
-  return { caddy, remote_signin: remoteSignin, node, build_inputs: inputs, build: force || published?.draft === true || previous !== inputs }
+  const build = force || previous !== inputs
+  const revision = build ? (revisions[0]?.revision ?? 0) + 1 : published.revision
+  if (!Number.isSafeInteger(revision)) throw new Error('Build revision overflow')
+  const imageVersion = `${dsh}-r${revision}`
+  return { caddy, remote_signin: remoteSignin, node, build_inputs: inputs, build,
+    revision, image_version: imageVersion, release_tag: `dsh-v${imageVersion}` }
+
 }
 
 async function main() {

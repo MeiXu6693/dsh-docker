@@ -67,11 +67,13 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
 | `validate` | 每次 push / PR | 静态闸门 + shellcheck + hadolint + `caddy validate` + 脚本端到端 |
-| `release` | 每小时 :17、触及镜像的 push、手动 | 解析版本 → **静态闸门** → 构建 amd64 → 冒烟 → 推送 amd64+arm64（`:<版本>`、`:latest`、`:<通道>`）→ 建 `dsh-v<版本>` tag 与 Release |
+| `release` | 每小时 :17、触及镜像的 push、手动 | 解析版本 → **静态闸门** → 构建 amd64 → 冒烟 → 推送 amd64+arm64（`:<版本>-r<N>`、`:<版本>`、`:latest`、`:<通道>`）→ 建独立构建 tag 与 Release |
 
-Release tag 一律写成 `dsh-v<版本>`，与上游自己的命名一致（`deepseek-ai/deepseek-harness`
-的 Release 就是 `dsh-v0.2.1-alpha.5`），这样一个版本在两个仓库里拼写相同、可以直接互相粘贴。
-**镜像** tag 保持不带 `v`（`:0.2.1-alpha.5`），因为它对应的是构建所依据的 npm 版本号。
+保留上游版本作为基础版本，追加 `-r<N>` 构建后缀。例如 DSH `0.2.1-rc.4` 对应镜像
+`:0.2.1-rc.4-r1` 与 Release `dsh-v0.2.1-rc.4-r1`；组件更新或强制重建产生 `r2`，
+DSH 升版后从 `r1` 开始。下个序号取该 DSH 版本已记录的最大序号加一，按数字排序，
+包含草稿以避免冲突。创建 Release 记录之前失败不消耗序号；所有分支的发布任务串行执行。
+历史不带后缀的 Release 保留，首次采用新规则时发布 `r1`。
 
 **闸门是共用的**：`release` 的 verify 步骤跑的就是 `validate` 用的那个 `scripts/check-static.sh`，
 所以**检查不过的提交什么都发不出去**（publish 与 release 两个 job 直接跳过）。两者曾经各自独立，
@@ -82,10 +84,10 @@ Release tag 一律写成 `dsh-v<版本>`，与上游自己的命名一致（`dee
 | 输入 | 说明 |
 |---|---|
 | `version` | 留空 = 自动解析最高版本；也可以指定确切版本 |
-| `force` | 勾选 = 即使 `dsh-v<版本>` tag 已存在也重建（重发同一版本，或改了 Dockerfile 后刷新镜像） |
+| `force` | 勾选 = 即使全部组件版本未变，也发布下一个构建序号 |
 
 只有所选 DSH Release 已记录相同的 DSH、Node、Caddy 和远程登录插件版本时，才跳过构建。
-没有组件元数据的历史 Release 会重建一次。`force=true` 可在版本全未变时重建，例如发布代理
+没有带构建序号记录的历史 Release 会触发首次 `r1` 构建。`force=true` 可在版本全未变时重建，例如发布代理
 配置修复；它不会禁用 Docker 层缓存。只改文档的 push 不触发 release。
 
 ## 组件版本策略
@@ -93,7 +95,7 @@ Release tag 一律写成 `dsh-v<版本>`，与上游自己的命名一致（`dee
 | 组件 | 发版时如何选择 |
 |---|---|
 | DSH | 已发布的最高 semver（含预发布），或手动 `version` 输入 |
-| Node | 项目固定值 `DEFAULT_NODE_VERSION=24.21.0`；上游 `engines.node` 仅记录诊断信息，不改变运行时版本 |
+| Node | 上游 `engines.node` 指定的精确版本；版本范围或缺失时使用 `DEFAULT_NODE_VERSION=24.21.0` |
 | Caddy | `caddyserver/caddy` 最新稳定 GitHub Release，必须具备 Linux amd64 与 arm64 安装包 |
 | 远程登录插件 | `MeiXu6693/dsh-remote-signin` 的最高稳定 semver Git tag，排除预发布 tag（该项目目前未发布 GitHub Release） |
 | pnpm | Dockerfile 的 `PNPM_VERSION=12`，安装层执行时在主版本 12 内选择 |
@@ -104,14 +106,14 @@ Release tag 一律写成 `dsh-v<版本>`，与上游自己的命名一致（`dee
 的代理断言和完整镜像冒烟通过后才发布；上游接口变化因此可能阻止自动更新，需先修复兼容性。
 
 Release 说明记录组件版本及供下次比较的 `dsh-build-inputs` 标记，编辑说明时应保留该标记。
-仅组件变化时，会重发原 DSH 镜像标签并更新 Release 说明，不移动已有 Git tag。
-需要不可变部署时固定镜像 digest；审计重建时使用工作流提交及记录的组件版本。
-部署端拉取镜像并重建容器后，更新才生效。
+每次成功发布新建构建标签及指向工作流提交的 Release，不编辑旧构建 Release、不移动已有
+Git tag。不带构建序号的 DSH 镜像标签、`latest` 与通道标签是移动别名。固定构建序号标签或
+镜像 digest 可复现部署；拉取镜像并重建容器后更新才生效。`/etc/dsh-version` 也记录构建序号。
 
 直接执行 `docker build` 仍使用 Dockerfile 中显式的 Caddy 与插件默认值，自动解析由发布 CI
 执行。本地复现某次发布时传入 `CADDY_VERSION` 和 `REMOTE_SIGNIN_VERSION` 构建参数。
-验证 CI 也会解析当前稳定 Caddy。运行时 Node 只能通过显式修改项目固定值和 Dockerfile 默认值，
-并通过镜像测试后升级。
+验证 CI 也会解析当前稳定 Caddy。运行时 Node 按上游精确版本要求更新，并经过相同镜像测试；
+调整兜底版本时，需显式同步修改项目默认值与 Dockerfile 默认值。
 
 ## 需要确认的仓库设置
 

@@ -10,9 +10,9 @@ name: release
 # 2026-10-15, latest=0.2.0-rc.2 while alpha=0.2.1-alpha.3). See
 # scripts/resolve-dsh-version.mjs for the resolution rules.
 #
-# Tags are named `dsh-v<version>`, mirroring upstream's own scheme (their release
-# list reads `dsh-v0.2.1-alpha.5`), so one version is spelled the same way in both
-# repositories and cross-referencing stays a copy-paste.
+# Each publication adds -r<N> to the upstream version. Revision image tags and
+# Releases are retained; the unsuffixed DSH tag/latest/channel remain moving aliases.
+# Component versions in the newest revision's notes determine whether to rebuild.
 #
 # The Unraid template is NOT built or attached here any more: it lives in its own
 # repository (MeiXu6693/dsh-unraid) and points at this image's `:latest` tag, so
@@ -25,8 +25,8 @@ on:
   # run into a lost day; an hourly slot gives ~24 chances and caps the damage at an
   # hour. :17 keeps clear of the busy start of the hour.
   #
-  # The extra runs are nearly free: when the resolved upstream version already has
-  # its release tag, the build job is skipped and the run is just the resolve step
+  # The extra runs are nearly free: when the newest recorded build has the same
+  # upstream and component versions, the build job is skipped and the run is just the resolve step
   # (measured: 11 s). Editing this file re-registers the schedule, so the first tick
   # after a change can take up to an hour to appear.
   schedule:
@@ -38,7 +38,7 @@ on:
         required: false
         default: ''
       force:
-        description: 'Rebuild even when the release tag already exists'
+        description: 'Publish a new build revision even when component versions are unchanged'
         type: boolean
         required: false
         default: false
@@ -55,7 +55,7 @@ on:
       - '.github/workflows/release.yml'
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-image
   cancel-in-progress: false
 
 permissions:
@@ -81,6 +81,9 @@ jobs:
       caddy: ${{ steps.components.outputs.caddy }}
       remote_signin: ${{ steps.components.outputs.remote_signin }}
       build_inputs: ${{ steps.components.outputs.build_inputs }}
+      revision: ${{ steps.components.outputs.revision }}
+      image_version: ${{ steps.components.outputs.image_version }}
+      release_tag: ${{ steps.components.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -110,11 +113,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DSH_VERSION: ${{ steps.pick.outputs.version }}
+          NODE_VERSION: ${{ steps.pick.outputs.node }}
           FORCE_BUILD: ${{ inputs.force || 'false' }}
         run: |
           set -euo pipefail
           node scripts/resolve-component-versions.mjs \
-            --dsh="${DSH_VERSION}" --node="${DEFAULT_NODE_VERSION}" \
+            --dsh="${DSH_VERSION}" --node="${NODE_VERSION}" \
             --repository="${GITHUB_REPOSITORY}" --force="${FORCE_BUILD}" >> "${GITHUB_OUTPUT}"
 
 
@@ -152,6 +156,7 @@ jobs:
             NODE_VERSION=${{ needs.resolve.outputs.node }}
             CADDY_VERSION=${{ needs.resolve.outputs.caddy }}
             REMOTE_SIGNIN_VERSION=${{ needs.resolve.outputs.remote_signin }}
+            DSH_REVISION=${{ needs.resolve.outputs.revision }}
             SOURCE_REPO=${{ github.repository }}
 
       - name: Smoke test the image
@@ -196,6 +201,7 @@ jobs:
           cache-from: type=gha,scope=publish
           cache-to: type=gha,mode=max,scope=publish
           tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.image_version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.channel }}
@@ -204,6 +210,7 @@ jobs:
             NODE_VERSION=${{ needs.resolve.outputs.node }}
             CADDY_VERSION=${{ needs.resolve.outputs.caddy }}
             REMOTE_SIGNIN_VERSION=${{ needs.resolve.outputs.remote_signin }}
+            DSH_REVISION=${{ needs.resolve.outputs.revision }}
             SOURCE_REPO=${{ github.repository }}
 
       - name: Summary
@@ -211,7 +218,8 @@ jobs:
           {
             echo "### Published"
             echo ''
-            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.version }}\`"
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.image_version }}\` (build)"
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.version }}\` (upstream alias)"
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\` (moving)"
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.channel }}\` (channel)"
             echo "- digest: \`${{ steps.push.outputs.digest }}\`"
@@ -241,11 +249,12 @@ jobs:
         run: |
           set -euo pipefail
           version='${{ needs.resolve.outputs.version }}'
-          tag="dsh-v${version}"
+          image_version='${{ needs.resolve.outputs.image_version }}'
+          tag='${{ needs.resolve.outputs.release_tag }}'
           cat > notes.md <<EOF
-          DeepSeek Harness **${version}** as a container image. On Unraid it installs from Community Applications.
+          DeepSeek Harness **${version}**, image build **${{ needs.resolve.outputs.revision }}**. On Unraid it installs from Community Applications.
 
-          - image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${version}\` (also tagged \`latest\`, \`${{ needs.resolve.outputs.channel }}\`)
+          - image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${image_version}\` (also tagged \`${version}\`, \`latest\`, \`${{ needs.resolve.outputs.channel }}\`)
           - upstream package: \`@deepseek-ai/dsh@${version}\` (node \`${{ needs.resolve.outputs.node }}\`)
           - Caddy: \`${{ needs.resolve.outputs.caddy }}\`; remote sign-in: \`${{ needs.resolve.outputs.remote_signin }}\`
           - component updates rebuild the image even when the DSH version is unchanged; pull and recreate to apply
@@ -278,22 +287,19 @@ jobs:
             -e ALLOWED_CLIENTS=127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10 \\
             -v "\$PWD/dsh/data:/data" -v "\$PWD/dsh/workspace:/workspace" \\
             --security-opt seccomp=unconfined --security-opt systempaths=unconfined \\
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${version}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${image_version}
           \`\`\`
 
           Log in as \`dsh\` with the generated password, or set your own with \`-e DSH_PASSWORD=…\`
           (8+ characters). Two things catch people out when the command is written by hand:
           \`ALLOWED_CLIENTS\` is what lets a browser on another machine in (the image trusts loopback
           only by default, so everything else gets \`403\`), and the two \`--security-opt\` values are what
-          let the bundled sandbox start on kernels without Landlock. Pin \`${version}\` instead of
+          let the bundled sandbox start on kernels without Landlock. Pin \`${image_version}\` instead of
           \`latest\` to move on your own schedule; every setting is in the
           [documentation](https://github.com/${{ github.repository }}/blob/main/README.md).
           EOF
-          if gh release view "${tag}" >/dev/null 2>&1; then
-            # A forced rebuild of an already released version must not fail here.
-            gh release edit "${tag}" --title "DSH ${version}" --notes-file notes.md
-          else
-            gh release create "${tag}" \
-              --title "DSH ${version}" \
-              --notes-file notes.md
-          fi
+          # Revision tags are never edited or moved by the release workflow.
+          gh release create "${tag}" \
+            --target "${GITHUB_SHA}" \
+            --title "DSH ${image_version}" \
+            --notes-file notes.md

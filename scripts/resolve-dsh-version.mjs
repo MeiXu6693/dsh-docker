@@ -15,7 +15,7 @@
  * Output (stdout): one `key=value` line per fact, suitable for $GITHUB_OUTPUT.
  *   version=<highest semver published>
  *   stable=<highest semver without a prerelease suffix, or empty>
- *   node=<project-pinned Node version, independent of upstream engines.node>
+ *   node=<engines.node exact version, or project fallback>
  *   dist_tags=<comma separated tag:version pairs>
  *
  * Flags:
@@ -23,7 +23,7 @@
  *   --pick=all|stable   which version to report as `version` (default: all)
  *   --json              print a JSON object instead of key=value lines
  *   --registry=<url>    npm registry to query (default: https://registry.npmjs.org)
- *   --fallback-node=…   project-pinned runtime Node version (never follows upstream)
+ *   --fallback-node=…   Node version to use when upstream gives a range or no version
  */
 import process from 'node:process'
 
@@ -130,7 +130,7 @@ if (selected === undefined) {
 
 const manifest = packument.versions[selected.raw] ?? {}
 const enginesNode = typeof manifest.engines?.node === 'string' ? manifest.engines.node.trim() : ''
-const nodeVersion = fallbackNode // Runtime Node changes only when the project pin is changed.
+const nodeVersion = /^\d+\.\d+\.\d+$/.test(enginesNode) ? enginesNode : fallbackNode
 const distTags = Object.entries(packument['dist-tags'] ?? {})
   .map(([tag, value]) => `${tag}:${value}`)
   .sort()
