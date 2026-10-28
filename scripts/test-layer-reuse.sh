@@ -38,6 +38,11 @@ for revision in 1 2; do
     [[ "${actual}" == *"DSH_REVISION=${revision}"* ]] || { echo 'incorrect image version metadata' >&2; exit 1; }
 done
 
+# The application runs unprivileged and must be able to traverse the config
+# directory and read the remote-sign-in overlay.
+docker run --rm --user 1000:1000 --entrypoint sh "${tag_base}:second" \
+    -c 'test -x /etc/dsh && test -r /etc/dsh/remote-signin.patch.yml'
+
 # Confirm the reordered runtime still starts, authenticates, streams and runs
 # the same application-level smoke assertions as the release pipeline.
 bash scripts/smoke.sh "${tag_base}:second"

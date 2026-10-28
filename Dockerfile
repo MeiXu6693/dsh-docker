@@ -147,6 +147,7 @@ COPY --link docker/Caddyfile.edge docker/Caddyfile.lan docker/Caddyfile.common /
 COPY --link --chmod=0644 docker/remote-signin.patch.yml /etc/dsh/remote-signin.patch.yml
 
 RUN set -eux; \
+    chmod 0755 /etc/dsh; \
     printf '#!/bin/sh\nexec node /app/node_modules/@deepseek-ai/dsh/lib/bin.js "$@"\n' > /usr/local/bin/dsh; \
     chmod 0755 /usr/local/bin/dsh
 
