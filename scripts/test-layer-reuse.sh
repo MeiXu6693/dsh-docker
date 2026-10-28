@@ -37,3 +37,7 @@ for revision in 1 2; do
     actual="$(docker run --rm --entrypoint cat "${tag_base}:${tag}" /etc/dsh-version)"
     [[ "${actual}" == *"DSH_REVISION=${revision}"* ]] || { echo 'incorrect image version metadata' >&2; exit 1; }
 done
+
+# Confirm the reordered runtime still starts, authenticates, streams and runs
+# the same application-level smoke assertions as the release pipeline.
+bash scripts/smoke.sh "${tag_base}:second"
