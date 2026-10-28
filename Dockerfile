@@ -97,22 +97,6 @@ RUN set -eux; \
 # -------------------------------------------------------------------- runtime
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 
-ARG DSH_VERSION
-ARG CADDY_VERSION
-ARG REMOTE_SIGNIN_VERSION=v0.2.1
-ARG DSH_REVISION=1
-ARG SOURCE_REPO=dsh-docker
-
-LABEL org.opencontainers.image.title="DeepSeek Harness" \
-      org.opencontainers.image.description="DeepSeek Harness web UI with a working bubblewrap sandbox on Landlock-less hosts" \
-      org.opencontainers.image.version="${DSH_VERSION}" \
-      org.opencontainers.image.revision="${DSH_REVISION}" \
-      org.opencontainers.image.source="https://github.com/${SOURCE_REPO}" \
-      org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.base.name="docker.io/library/node:${NODE_VERSION}-bookworm-slim" \
-      io.dsh.upstream.package="@deepseek-ai/dsh" \
-      io.dsh.upstream.version="${DSH_VERSION}"
-
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # /home/node/workspace -> /workspace: DSH's directory picker starts at $HOME and
@@ -142,42 +126,49 @@ RUN set -eux; \
         util-linux; \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=deps /app /app
-COPY --from=caddy /usr/local/bin/caddy /usr/local/bin/caddy
-COPY docker/entrypoint.sh docker/healthcheck.sh /usr/local/bin/
-COPY docker/Caddyfile.edge docker/Caddyfile.lan docker/Caddyfile.common /etc/caddy/
-# The patch layer that loads the remote sign-in plugin while REMOTE_SIGNIN=on. It
-# names the plugin by absolute path because the launcher resolves entry names from the
-# installation and the profile, and neither holds a plugin this image installs — see
-# the file itself.
-COPY docker/remote-signin.patch.yml /etc/dsh/remote-signin.patch.yml
-
-# pnpm is what `dsh plugin` installs plugins with. Keep it on the newest release: a
-# profile's node_modules records the pnpm major that built it, and pnpm refuses to modify
-# a tree built by another major (ERR_PNPM_UNEXPECTED_STORE) — an old pin here is exactly
-# what produced that mismatch for profiles built by an earlier image. The version is an
-# ARG rather than a bare `pnpm` install so a rebuild follows this line, not `latest`
-# silently.
+# Install pnpm before copying versioned app and proxy files. This layer can be
+# reused when DSH, Caddy, plugin or deployment configuration changes.
 ARG PNPM_VERSION=12
-
 RUN set -eux; \
-    chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh /usr/local/bin/caddy; \
-    chmod 0644 /etc/dsh/remote-signin.patch.yml; \
-    printf '#!/bin/sh\nexec node /app/node_modules/@deepseek-ai/dsh/lib/bin.js "$@"\n' > /usr/local/bin/dsh; \
-    chmod 0755 /usr/local/bin/dsh; \
     npm install --global --no-audit --no-fund "pnpm@${PNPM_VERSION}"; \
     pnpm --version; \
     rm -rf /root/.npm; \
-    printf 'DSH_VERSION=%s\nCADDY_VERSION=%s\nREMOTE_SIGNIN_VERSION=%s\n' "${DSH_VERSION}" "${CADDY_VERSION}" "${REMOTE_SIGNIN_VERSION}" > /etc/dsh-version; \
-    mkdir -p /data/dsh/agents /workspace; \
-    chown -R 1000:1000 /data /workspace; \
-    mkdir -p /home/node/.npm; \
-    chown -R 1000:1000 /home/node; \
+    mkdir -p /data/dsh/agents /workspace /home/node/.npm; \
+    chown -R 1000:1000 /data /workspace /home/node/.npm; \
     ln -sfn /workspace /home/node/workspace; \
     chown -h 1000:1000 /home/node/workspace
 
-# Keep metadata-only changes separate from the package installation layer.
-RUN printf 'DSH_REVISION=%s\n' "${DSH_REVISION}" >> /etc/dsh-version
+# Linked COPY layers are independent of preceding filesystem changes, allowing
+# unchanged Caddy and app blobs to be reused when another layer is updated.
+COPY --link --chmod=0755 --from=caddy /usr/local/bin/caddy /usr/local/bin/caddy
+COPY --link --from=deps /app /app
+COPY --link --chmod=0755 docker/entrypoint.sh docker/healthcheck.sh /usr/local/bin/
+COPY --link docker/Caddyfile.edge docker/Caddyfile.lan docker/Caddyfile.common /etc/caddy/
+COPY --link --chmod=0644 docker/remote-signin.patch.yml /etc/dsh/remote-signin.patch.yml
+
+RUN set -eux; \
+    printf '#!/bin/sh\nexec node /app/node_modules/@deepseek-ai/dsh/lib/bin.js "$@"\n' > /usr/local/bin/dsh; \
+    chmod 0755 /usr/local/bin/dsh
+
+# Declare volatile build arguments only after the large installation layers.
+ARG DSH_VERSION
+ARG CADDY_VERSION
+ARG REMOTE_SIGNIN_VERSION=v0.2.1
+ARG DSH_REVISION=1
+ARG SOURCE_REPO=dsh-docker
+
+LABEL org.opencontainers.image.title="DeepSeek Harness" \
+      org.opencontainers.image.description="DeepSeek Harness web UI with a working bubblewrap sandbox on Landlock-less hosts" \
+      org.opencontainers.image.version="${DSH_VERSION}" \
+      org.opencontainers.image.revision="${DSH_REVISION}" \
+      org.opencontainers.image.source="https://github.com/${SOURCE_REPO}" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.base.name="docker.io/library/node:${NODE_VERSION}-bookworm-slim" \
+      io.dsh.upstream.package="@deepseek-ai/dsh" \
+      io.dsh.upstream.version="${DSH_VERSION}"
+
+RUN printf 'DSH_VERSION=%s\nCADDY_VERSION=%s\nREMOTE_SIGNIN_VERSION=%s\nDSH_REVISION=%s\n' \
+    "${DSH_VERSION}" "${CADDY_VERSION}" "${REMOTE_SIGNIN_VERSION}" "${DSH_REVISION}" > /etc/dsh-version
 
 # The ownership above is the build-time default identity (1000:1000), and it no longer
 # has to be the runtime one: PUID/PGID choose who the container runs as, and the
