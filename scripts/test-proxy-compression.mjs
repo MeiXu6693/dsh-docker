@@ -21,10 +21,16 @@ const compressed = gzipSync(script);
 const agent = new http.Agent({ keepAlive: true });
 const sockets = new Set();
 let streamEnded = false;
+let revision = 1;
+let sessionValid = true;
 
 const upstream = http.createServer((req, res) => {
   const path = new URL(req.url, 'http://fixture').pathname;
   if (path === '/healthz') return res.end('ok');
+  if (path === '/assets/private.js' && (req.headers.cookie !== 'fixture-session=valid' || !sessionValid)) {
+    res.writeHead(401, { 'Content-Type': 'text/plain', 'Cache-Control': 'private, no-store' });
+    return res.end('authentication required');
+  }
   if (path === '/assets/live.js') {
     streamEnded = false;
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -36,14 +42,19 @@ const upstream = http.createServer((req, res) => {
     res.on('close', () => clearTimeout(timer));
     return;
   }
-  if (req.headers['if-none-match'] === '"fixture-v1"') {
-    res.writeHead(304, { ETag: '"fixture-v1"', 'Cache-Control': 'public, max-age=3600' });
+  const etag = `"fixture-v${revision}"`;
+  const privateResponse = path.startsWith('/api/') || path === '/assets/private.js';
+  // Deliberately mislabel the session list to verify the proxy's privacy policy.
+  const cachePolicy = privateResponse && path !== '/api/session/list' ? 'private, no-store' : 'public, max-age=3600';
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, { ETag: etag, 'Cache-Control': cachePolicy });
     return res.end();
   }
-  let body = path.startsWith('/api/') ? json : script;
+  let body = path.startsWith('/api/') ? json
+    : revision === 1 ? script : Buffer.concat([Buffer.from('export const revision = 2;\n'), script]);
   let type = path.startsWith('/api/') ? 'application/json' : 'text/javascript; charset=utf-8';
   let status = 200;
-  const headers = { ETag: '"fixture-v1"', 'Cache-Control': 'public, max-age=3600' };
+  const headers = { ETag: etag, 'Cache-Control': cachePolicy, Vary: 'Origin' };
   if (path === '/assets/tiny.js') body = Buffer.from('export default 1;');
   if (path.endsWith('.css')) type = 'text/css';
   if (path.endsWith('.wasm')) type = 'application/wasm';
@@ -53,7 +64,7 @@ const upstream = http.createServer((req, res) => {
   if (path === '/assets/preencoded.js') {
     body = compressed;
     headers['Content-Encoding'] = 'gzip';
-    headers.Vary = 'Accept-Encoding';
+    headers.Vary = 'Origin, Accept-Encoding';
   }
   if (req.headers.range === 'bytes=0-31') {
     status = 206;
@@ -189,7 +200,9 @@ async function testMode(mode, internalPort) {
       assert.deepEqual(gunzipSync(encoded.body), identity.body, path);
       assert.ok(encoded.body.length < identity.body.length / 2, path);
       assert.match(encoded.headers.vary, /Accept-Encoding/i);
+      assert.match(encoded.headers.vary, /Origin/);
       assert.equal(encoded.headers['cache-control'], identity.headers['cache-control']);
+      if (path === '/api/session/list') assert.equal(encoded.headers['cache-control'], 'private, no-store');
     }
     const asset = await request(port, '/assets/app.js', { headers: { 'Accept-Encoding': 'gzip' } });
     const conditional = await request(port, '/assets/app.js', {
@@ -197,6 +210,26 @@ async function testMode(mode, internalPort) {
     });
     assert.equal(conditional.status, 304);
     assert.equal(conditional.body.length, 0);
+    revision = 2;
+    const changed = await request(port, '/assets/app.js', {
+      headers: { 'Accept-Encoding': 'gzip', 'If-None-Match': asset.headers.etag },
+    });
+    assert.equal(changed.status, 200, 'a changed backend must not reuse a stale 304');
+    assert.notEqual(changed.headers.etag, asset.headers.etag);
+    assert.deepEqual(gunzipSync(changed.body), Buffer.concat([Buffer.from('export const revision = 2;\n'), script]));
+    revision = 1;
+    const privateAsset = await request(port, '/assets/private.js', {
+      headers: { Cookie: 'fixture-session=valid', 'Accept-Encoding': 'gzip' },
+    });
+    assert.equal(privateAsset.status, 200);
+    assert.equal(privateAsset.headers['cache-control'], 'private, no-store');
+    sessionValid = false;
+    const revoked = await request(port, '/assets/private.js', {
+      headers: { Cookie: 'fixture-session=valid', 'Accept-Encoding': 'gzip', 'If-None-Match': privateAsset.headers.etag },
+    });
+    assert.equal(revoked.status, 401, 'a cached validator must not bypass a revoked session');
+    assert.equal(revoked.headers['content-encoding'], undefined);
+    sessionValid = true;
     const range = await request(port, '/assets/app.js', {
       headers: { 'Accept-Encoding': 'gzip', Range: 'bytes=0-31' },
     });
@@ -213,6 +246,7 @@ async function testMode(mode, internalPort) {
     assert.equal(disabled.headers['content-encoding'], undefined);
     const post = await request(port, '/api/session/list', { method: 'POST', headers: { 'Accept-Encoding': 'gzip' } });
     assert.equal(post.headers['content-encoding'], 'gzip', 'DSH fetches its read-only session list with POST');
+    assert.equal(post.headers['cache-control'], 'private, no-store');
     assert.deepEqual(gunzipSync(post.body), json);
     for (const path of ['/assets/app.js', '/api/settings.describe']) {
       const otherPost = await request(port, path, { method: 'POST', headers: { 'Accept-Encoding': 'gzip' } });
@@ -237,7 +271,7 @@ async function testMode(mode, internalPort) {
       });
       assert.equal(foreignPost.status, 403);
     }
-    console.log(`ok ${mode}: encoding, body identity, Vary, 304, Range, SSE, WebSocket and origin fencing`);
+    console.log(`ok ${mode}: encoding, body identity, backend updates, session revocation, Vary, 304, Range, SSE, WebSocket and origin fencing`);
   } finally {
     if (child && child.exitCode === null) {
       child.kill('SIGTERM');

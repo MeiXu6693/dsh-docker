@@ -1,6 +1,11 @@
 # Shared by LAN and edge mode. Keep request routing, authentication and
 # Host/Origin handling in their mode-specific Caddyfiles.
 (dsh_response_encoding) {
+	# Session metadata is private. Apply this after upstream headers so an
+	# application update cannot accidentally make the list publicly cacheable.
+	@dsh_session_list path /api/session/list
+	header @dsh_session_list >Cache-Control "private, no-store"
+
 	@dsh_compressible {
 		expression `method('GET') || (method('POST') && path('/api/session/list'))`
 		path /assets/* /plugins/* /remote-signin/inpage.js /dsh-deployment.js /api/session/list

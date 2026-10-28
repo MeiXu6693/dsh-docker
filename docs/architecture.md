@@ -34,6 +34,8 @@ precompressed upstream representation. Existing encoded responses pass through.
 HTML and other API paths retain their existing handling. Range requests, WebSocket
 upgrades, event streams, error responses and binary downloads are excluded; the
 policy does not add a cache or change authentication, Host/Origin checks or ports.
+Static cache headers are preserved; the private session list is explicitly marked
+`Cache-Control: private, no-store`, overriding even a cacheable upstream response.
 Caddy's HTTP transport already reuses upstream connections by default.
 
 An outer reverse proxy must preserve `Accept-Encoding` for this negotiation to
@@ -43,7 +45,17 @@ and [reverse_proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_pr
 
 `scripts/test-proxy-compression.mjs` runs both production Caddyfiles against a
 controlled loopback upstream. It checks decoded body equality, encoding
-negotiation, cache validation, ranges, an already encoded upstream, SSE delivery
+negotiation, cache validation after backend changes, session revocation with an
+old validator, ranges, an already encoded upstream, SSE delivery
 and WebSocket frames. PR validation runs it with the pinned Caddy binary; image
 smoke tests run it inside the disposable image so release verification uses the
 same assertions.
+
+Content updates still depend on the application's validators and asset URLs. An
+old ETag must produce a new 200 response when the backend changes; a revoked
+session must produce an authentication error even when a client sends an old ETag.
+Compression cannot correct an application that reuses an immutable asset URL or
+an incorrect validator. Login HTML and credential/token APIs are outside the
+encoding allowlist, limiting compression side-channel exposure; reassess the
+session-list exception if a future upstream mixes secrets with attacker-controlled
+text in that response.
