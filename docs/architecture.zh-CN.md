@@ -24,8 +24,9 @@
 ## 响应压缩
 
 两种模式都导入 `/etc/caddy/Caddyfile.common`。共用策略会为 `/assets/`、`/plugins/`、
-远程登录脚本、部署脚本以及 `/api/session/list` 中成功的 GET 响应协商 gzip，最小体积为
-1024 字节，并明确限制为 JavaScript、CSS、JSON、SVG、WASM 与未压缩字体的 MIME 类型。
+远程登录脚本、部署脚本中成功的 GET 响应，以及只读 `/api/session/list` 的 GET/POST 响应
+协商 gzip（浏览器实际使用 POST），最小体积为 1024 字节，并明确限制为 JavaScript、CSS、
+JSON、SVG、WASM 与未压缩字体的 MIME 类型。
 这覆盖了运行时生成、上游可能没有预压缩版本的插件脚本；上游已经编码的响应直接透传。
 
 HTML 和其他 API 路径沿用原处理。Range 请求、WebSocket 升级、事件流、错误响应和二进制

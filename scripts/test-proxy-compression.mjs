@@ -212,7 +212,12 @@ async function testMode(mode, internalPort) {
     const disabled = await request(port, '/assets/app.js', { headers: { 'Accept-Encoding': 'gzip;q=0, identity' } });
     assert.equal(disabled.headers['content-encoding'], undefined);
     const post = await request(port, '/api/session/list', { method: 'POST', headers: { 'Accept-Encoding': 'gzip' } });
-    assert.equal(post.headers['content-encoding'], undefined);
+    assert.equal(post.headers['content-encoding'], 'gzip', 'DSH fetches its read-only session list with POST');
+    assert.deepEqual(gunzipSync(post.body), json);
+    for (const path of ['/assets/app.js', '/api/settings.describe']) {
+      const otherPost = await request(port, path, { method: 'POST', headers: { 'Accept-Encoding': 'gzip' } });
+      assert.equal(otherPost.headers['content-encoding'], undefined, path);
+    }
     let streamedBeforeEnd = false;
     const stream = await request(port, '/assets/live.js', {
       headers: { 'Accept-Encoding': 'gzip' }, firstChunk: () => { streamedBeforeEnd = !streamEnded; },
@@ -227,6 +232,10 @@ async function testMode(mode, internalPort) {
       });
       assert.equal(foreign.status, 403);
       assert.equal(foreign.headers['content-encoding'], undefined);
+      const foreignPost = await request(port, '/api/session/list', {
+        method: 'POST', headers: { Origin: 'https://foreign.example', 'Accept-Encoding': 'gzip' },
+      });
+      assert.equal(foreignPost.status, 403);
     }
     console.log(`ok ${mode}: encoding, body identity, Vary, 304, Range, SSE, WebSocket and origin fencing`);
   } finally {

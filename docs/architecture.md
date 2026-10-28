@@ -24,8 +24,9 @@ The rules behind the first two bullets — the two modes, Host/Origin handling a
 ## Response compression
 
 Both modes import `/etc/caddy/Caddyfile.common`. Its shared policy negotiates gzip
-for successful GET responses of at least 1024 bytes under `/assets/`, `/plugins/`,
-the remote-sign-in script, the deployment script and `/api/session/list`, with an
+for successful responses of at least 1024 bytes: GET requests under `/assets/`,
+`/plugins/`, the remote-sign-in and deployment scripts, and GET/POST requests to the
+read-only `/api/session/list` endpoint (the browser uses POST). It uses an
 explicit allowlist of JavaScript, CSS, JSON, SVG, WASM and uncompressed font MIME
 types. These include plugin bundles generated at runtime, which may not have a
 precompressed upstream representation. Existing encoded responses pass through.

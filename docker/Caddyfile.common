@@ -2,7 +2,7 @@
 # Host/Origin handling in their mode-specific Caddyfiles.
 (dsh_response_encoding) {
 	@dsh_compressible {
-		method GET
+		expression `method('GET') || (method('POST') && path('/api/session/list'))`
 		path /assets/* /plugins/* /remote-signin/inpage.js /dsh-deployment.js /api/session/list
 		not header Range *
 		not header Upgrade *

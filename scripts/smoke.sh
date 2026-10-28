@@ -681,6 +681,13 @@ done
 # Exercise the same encoding policy in both modes against a controlled upstream.
 # The test runs inside this disposable smoke container and starts its own Caddy
 # listeners on loopback, so it needs neither another image nor production volumes.
+ENCODING_GATE_CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
+    --header 'Accept-Encoding: gzip' "http://127.0.0.1:${PORT}/assets/compression-gate-probe.js" || true)"
+if [[ "${ENCODING_GATE_CODE}" == '401' ]]; then
+    pass 'compressible asset paths still require the password gate'
+else
+    fail "compressible asset path returned ${ENCODING_GATE_CODE} without credentials, expected 401"
+fi
 if docker exec --interactive --env CADDY_TEMPLATE_DIR=/etc/caddy \
     "${NAME}" node --input-type=module - < "$(dirname "$0")/test-proxy-compression.mjs"; then
     pass 'shared compression preserves response bodies, cache validation, ranges and streaming'
