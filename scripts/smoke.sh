@@ -774,6 +774,7 @@ if docker network create "${AC_NET}" >/dev/null 2>&1; then
         --volume "${WORKDIR}/data-ac:/data" \
         --volume "${WORKDIR}/workspace-ac:/workspace" \
         --env 'ALLOWED_CLIENTS=127.0.0.1' \
+        --env "DSH_PASSWORD=${SMOKE_PASSWORD}" \
         "${IMAGE}" >/dev/null
 
     ac_ready=0
@@ -807,6 +808,7 @@ if docker network create "${AC_NET}" >/dev/null 2>&1; then
             --volume "${WORKDIR}/data-ac:/data" \
             --volume "${WORKDIR}/workspace-ac:/workspace" \
             --env "ALLOWED_CLIENTS=127.0.0.1,${CLIENT_CIDR}" \
+            --env "DSH_PASSWORD=${SMOKE_PASSWORD}" \
             "${IMAGE}" >/dev/null
         for _ in $(seq 1 60); do
             docker exec "${AC_NAME}" curl --silent --fail --max-time 3 http://127.0.0.1:8080/healthz >/dev/null 2>&1 && break
@@ -826,6 +828,11 @@ if docker network create "${AC_NET}" >/dev/null 2>&1; then
     docker network rm "${AC_NET}" >/dev/null 2>&1 || true
 else
     printf 'skip access-control check: could not create a test network\n'
+fi
+
+if [[ "${FAILURES}" -ne 0 ]]; then
+    printf '\n%s check(s) failed\n' "${FAILURES}"
+    exit 1
 fi
 
 printf '\nall smoke checks passed\n'
