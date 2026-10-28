@@ -75,6 +75,9 @@ jobs:
           chmod +x "${RUNNER_TEMP}/dsh-caddy"
           CADDY_BIN="${RUNNER_TEMP}/dsh-caddy" node scripts/test-proxy-compression.mjs
 
+      - name: Image layers survive a revision change
+        run: bash scripts/test-layer-reuse.sh
+
       - name: Scripts run end to end
         run: |
           set -euo pipefail

@@ -123,6 +123,15 @@ Release or moves its Git tag. Only `latest` and channel tags are moving aliases;
 the first build. Pin a versioned tag or digest for reproducible deployment, and pull and
 recreate containers to apply updates. `/etc/dsh-version` records the build revision too.
 
+
+Large runtime layers are ordered before versioned application files; linked COPY layers
+keep unchanged app and Caddy blobs reusable when the parent changes. The CI layer-reuse
+test builds two revisions and checks that only the metadata layer changes. A first build
+after changing this layout can require a one-time download of newly formed layers; a new
+Node base, changed app or component, cache eviction, or a cold builder can still require
+large downloads. Layer reuse does not guarantee security updates: force a fresh dependency
+build when needed, and retain the normal security update and smoke-test process.
+
 Direct `docker build` still uses the Dockerfile's explicit Caddy and plugin defaults;
 automatic selection is performed by release CI. Pass `CADDY_VERSION` and
 `REMOTE_SIGNIN_VERSION` build arguments to reproduce a selected release locally.
