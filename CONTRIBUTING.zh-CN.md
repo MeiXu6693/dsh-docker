@@ -84,8 +84,34 @@ Release tag 一律写成 `dsh-v<版本>`，与上游自己的命名一致（`dee
 | `version` | 留空 = 自动解析最高版本；也可以指定确切版本 |
 | `force` | 勾选 = 即使 `dsh-v<版本>` tag 已存在也重建（重发同一版本，或改了 Dockerfile 后刷新镜像） |
 
-对已发布的版本再跑一次会走**跳过分支**：`resolve` 看到 tag 已存在 → `build=false` → 后面全部跳过，
-不浪费构建时间。**只改本仓库文档或脚本的 push 不会重发任何东西**——要用 `force`。
+只有所选 DSH Release 已记录相同的 DSH、Node、Caddy 和远程登录插件版本时，才跳过构建。
+没有组件元数据的历史 Release 会重建一次。`force=true` 可在版本全未变时重建，例如发布代理
+配置修复；它不会禁用 Docker 层缓存。只改文档的 push 不触发 release。
+
+## 组件版本策略
+
+| 组件 | 发版时如何选择 |
+|---|---|
+| DSH | 已发布的最高 semver（含预发布），或手动 `version` 输入 |
+| Node | 项目固定值 `DEFAULT_NODE_VERSION=24.21.0`；上游 `engines.node` 仅记录诊断信息，不改变运行时版本 |
+| Caddy | `caddyserver/caddy` 最新稳定 GitHub Release，必须具备 Linux amd64 与 arm64 安装包 |
+| 远程登录插件 | `MeiXu6693/dsh-remote-signin` 的最高稳定 semver Git tag，排除预发布 tag（该项目目前未发布 GitHub Release） |
+| pnpm | Dockerfile 的 `PNPM_VERSION=12`，安装层执行时在主版本 12 内选择 |
+| 系统包与 npm 间接依赖 | 安装层执行时从软件源解析；命中构建缓存可能保留旧结果 |
+
+`scripts/resolve-component-versions.mjs` 每次发版只解析一次组件版本，将相同精确值传给
+验证和发布。API 错误或 Caddy 安装包不完整时停止，不静默回退旧版本。静态检查、两种模式
+的代理断言和完整镜像冒烟通过后才发布；上游接口变化因此可能阻止自动更新，需先修复兼容性。
+
+Release 说明记录组件版本及供下次比较的 `dsh-build-inputs` 标记，编辑说明时应保留该标记。
+仅组件变化时，会重发原 DSH 镜像标签并更新 Release 说明，不移动已有 Git tag。
+需要不可变部署时固定镜像 digest；审计重建时使用工作流提交及记录的组件版本。
+部署端拉取镜像并重建容器后，更新才生效。
+
+直接执行 `docker build` 仍使用 Dockerfile 中显式的 Caddy 与插件默认值，自动解析由发布 CI
+执行。本地复现某次发布时传入 `CADDY_VERSION` 和 `REMOTE_SIGNIN_VERSION` 构建参数。
+验证 CI 也会解析当前稳定 Caddy。运行时 Node 只能通过显式修改项目固定值和 Dockerfile 默认值，
+并通过镜像测试后升级。
 
 ## 需要确认的仓库设置
 

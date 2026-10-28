@@ -29,9 +29,9 @@ ARG CADDY_VERSION=2.11.7
 FROM node:${NODE_VERSION}-bookworm-slim AS deps
 ARG DSH_VERSION
 # The remote sign-in plugin has its own repository and its own release schedule
-# (github.com/MeiXu6693/dsh-remote-signin). It is pinned to a tag on purpose: a build
-# of this image must get the plugin version this Dockerfile was tested with, and the
-# plugin's own CI is what validates it.
+# (github.com/MeiXu6693/dsh-remote-signin). Release CI resolves its newest stable
+# tag once and passes it to both verification and publishing. This default is for
+# direct local builds; the image smoke suite validates the selected plugin.
 #
 # The spec is the tag's tarball URL, not a git URL, for two measured reasons:
 #   * the "github:owner/repo#tag" shorthand had npm resolve to ssh://git@github.com and
@@ -99,6 +99,7 @@ FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 
 ARG DSH_VERSION
 ARG CADDY_VERSION
+ARG REMOTE_SIGNIN_VERSION=v0.2.1
 ARG DSH_REVISION=1
 ARG SOURCE_REPO=dsh-docker
 
@@ -167,7 +168,7 @@ RUN set -eux; \
     npm install --global --no-audit --no-fund "pnpm@${PNPM_VERSION}"; \
     pnpm --version; \
     rm -rf /root/.npm; \
-    printf 'DSH_VERSION=%s\nCADDY_VERSION=%s\n' "${DSH_VERSION}" "${CADDY_VERSION}" > /etc/dsh-version; \
+    printf 'DSH_VERSION=%s\nCADDY_VERSION=%s\nREMOTE_SIGNIN_VERSION=%s\n' "${DSH_VERSION}" "${CADDY_VERSION}" "${REMOTE_SIGNIN_VERSION}" > /etc/dsh-version; \
     mkdir -p /data/dsh/agents /workspace; \
     chown -R 1000:1000 /data /workspace; \
     mkdir -p /home/node/.npm; \

@@ -38,6 +38,9 @@ for file in scripts/*.mjs; do
 done
 
 echo
+echo '== component release policy =='
+node scripts/test-component-versions.mjs
+
 echo '== documentation =='
 # Anchors, relative links, and the English/Chinese tracks of every document that has
 # both. The self-test runs here as well: a gate that has quietly stopped biting is

@@ -16,7 +16,7 @@
 | Command sandbox on a kernel without Landlock (Unraid 7.x, some appliance kernels) | will not start | works — bubblewrap is bundled, the two `--security-opt` values are in [`compose.yaml`](compose.yaml) |
 | DeepSeek **account** sign-in from another machine | fails before the login page opens | built in, one paste step ([details](docs/remote-signin.md)) |
 | The CLIs your plugins shell out to | you put them on `PATH` | install under `/data`, [picked up at start](docs/extending.md) — and survive `docker pull` + recreate |
-| Larger frontend responses | depends on the server or proxy you configure | [shared gzip policy](docs/architecture.md#response-compression) for assets, plugin bundles and the session list in both modes |
+| Faster loading on bandwidth-limited connections | depends on the server or proxy you configure | [shared gzip policy](docs/architecture.md#response-compression) reduces bytes for assets, plugin bundles and the session list in both modes; no response cache or extra service |
 | Keeping up with upstream | your job | hourly: resolve → build amd64 + arm64 → smoke test → publish, and only if every check passes |
 
 **Known limits.** Single-user by design — there is no account database, so everyone who
@@ -117,6 +117,35 @@ Everything in `/data` and `/workspace` survives.
 | `:alpha` · `:rc` · `:stable` | Follow one upstream channel |
 
 An hourly job checks upstream, rebuilds and smoke-tests the image, and publishes only when the checks pass. Upstream currently ships alpha/rc builds, so `:latest` moves often — pin a version tag if you would rather update on your own schedule.
+
+The shared compression policy takes effect after pulling an image that contains it and
+recreating the container; no new setting or dependency is required. It reduces transfer
+size, with gains depending on content, bandwidth and available CPU; it does not accelerate
+model inference. If an outer proxy strips `Accept-Encoding` for body rewriting, configure
+compression there after rewriting. The session list is marked `private, no-store`;
+existing static-resource cache policies and authentication remain in place.
+
+**Component updates.** The hourly release workflow follows DSH, Caddy's latest stable
+GitHub Release and the remote sign-in plugin's highest stable Git tag. A component change
+triggers a rebuild even when DSH is unchanged; verification must pass before publishing.
+Runtime Node stays pinned to `24.21.0`, independent of upstream's `engines.node`.
+The same DSH image tag may therefore be republished with newer components; pin an image
+digest for immutable deployments. See the [component version policy](CONTRIBUTING.md#component-version-policy).
+
+## Security
+
+Compression does not cache responses or successful authentication decisions. The password
+gate, access allowlists, Host/Origin checks and cookie bootstrap still apply. Private
+session lists use `Cache-Control: private, no-store`; this does not purge already stored
+browser data, and static assets still need versioned URLs or correct validators.
+
+HTTPS response compression can expose a BREACH-style length side channel when secrets
+and attacker-controlled text share a response. The policy excludes login HTML and
+credential/token endpoints, errors, ranges, event streams and WebSocket upgrades. The
+session list remains compressed: if future content mixes secrets with attacker-controlled
+text, reassess or exclude that route at every compressing layer. Authentication and
+`no-store` do not eliminate this risk. See [compression security](docs/security.md#response-compression)
+for scope and deployment guidance.
 
 ## Problems
 

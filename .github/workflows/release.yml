@@ -67,7 +67,6 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/dsh
   DEFAULT_NODE_VERSION: '24.21.0'
-  CADDY_VERSION: '2.11.7'
 
 jobs:
   resolve:
@@ -78,7 +77,10 @@ jobs:
       node: ${{ steps.pick.outputs.node }}
       channel: ${{ steps.pick.outputs.channel }}
       dist_tags: ${{ steps.pick.outputs.dist_tags }}
-      build: ${{ steps.decide.outputs.build }}
+      build: ${{ steps.components.outputs.build }}
+      caddy: ${{ steps.components.outputs.caddy }}
+      remote_signin: ${{ steps.components.outputs.remote_signin }}
+      build_inputs: ${{ steps.components.outputs.build_inputs }}
     steps:
       - uses: actions/checkout@v4
 
@@ -103,23 +105,18 @@ jobs:
             echo "- dist-tags: \`$(awk -F= '$1 == "dist_tags" { print $2 }' "${GITHUB_OUTPUT}")\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Decide whether to build
-        id: decide
+      - name: Resolve components and decide whether to build
+        id: components
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DSH_VERSION: ${{ steps.pick.outputs.version }}
+          FORCE_BUILD: ${{ inputs.force || 'false' }}
         run: |
           set -euo pipefail
-          tag="dsh-v${{ steps.pick.outputs.version }}"
-          if [[ '${{ inputs.force }}' == 'true' ]]; then
-            echo 'build=true' >> "${GITHUB_OUTPUT}"
-            echo "::notice::force=true, rebuilding ${tag}"
-            exit 0
-          fi
-          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
-            echo 'build=false' >> "${GITHUB_OUTPUT}"
-            echo "::notice::${tag} is already published; nothing to do"
-          else
-            echo 'build=true' >> "${GITHUB_OUTPUT}"
-            echo "::notice::${tag} is new; building"
-          fi
+          node scripts/resolve-component-versions.mjs \
+            --dsh="${DSH_VERSION}" --node="${DEFAULT_NODE_VERSION}" \
+            --repository="${GITHUB_REPOSITORY}" --force="${FORCE_BUILD}" >> "${GITHUB_OUTPUT}"
+
 
   verify:
     name: verify amd64 image
@@ -153,7 +150,8 @@ jobs:
           build-args: |
             DSH_VERSION=${{ needs.resolve.outputs.version }}
             NODE_VERSION=${{ needs.resolve.outputs.node }}
-            CADDY_VERSION=${{ env.CADDY_VERSION }}
+            CADDY_VERSION=${{ needs.resolve.outputs.caddy }}
+            REMOTE_SIGNIN_VERSION=${{ needs.resolve.outputs.remote_signin }}
             SOURCE_REPO=${{ github.repository }}
 
       - name: Smoke test the image
@@ -204,7 +202,8 @@ jobs:
           build-args: |
             DSH_VERSION=${{ needs.resolve.outputs.version }}
             NODE_VERSION=${{ needs.resolve.outputs.node }}
-            CADDY_VERSION=${{ env.CADDY_VERSION }}
+            CADDY_VERSION=${{ needs.resolve.outputs.caddy }}
+            REMOTE_SIGNIN_VERSION=${{ needs.resolve.outputs.remote_signin }}
             SOURCE_REPO=${{ github.repository }}
 
       - name: Summary
@@ -248,6 +247,9 @@ jobs:
 
           - image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${version}\` (also tagged \`latest\`, \`${{ needs.resolve.outputs.channel }}\`)
           - upstream package: \`@deepseek-ai/dsh@${version}\` (node \`${{ needs.resolve.outputs.node }}\`)
+          - Caddy: \`${{ needs.resolve.outputs.caddy }}\`; remote sign-in: \`${{ needs.resolve.outputs.remote_signin }}\`
+          - component updates rebuild the image even when the DSH version is unchanged; pull and recreate to apply
+          <!-- dsh-build-inputs: ${{ needs.resolve.outputs.build_inputs }} -->
           - npm dist-tags at build time: \`${{ needs.resolve.outputs.dist_tags }}\`
           - image digest: \`${{ needs.publish.outputs.digest }}\`
 

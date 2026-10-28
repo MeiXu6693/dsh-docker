@@ -63,6 +63,39 @@ The implementation lives in `docker/entrypoint.sh` (parsing + generation) and `d
 - **Inject security response headers**: CSP, `X-Frame-Options: DENY`, `Referrer-Policy`, `X-Content-Type-Options`, etc.
 - **Login bootstrap**: the one-time token DSH prints at startup is handed to the first visitor via an internal rewrite, in exchange for a signed session cookie (`dsh-auth-*`). The token never appears in the browser's address bar.
 
+## Response compression
+
+Both modes import `docker/Caddyfile.common`. Gzip level 5 applies to successful (200)
+responses of at least 1024 bytes, with explicit path and MIME allowlists: selected
+assets/plugin scripts and the read-only session list. Requests must be GET, except that
+`POST /api/session/list` is also allowed. Other POST paths, HTML, credential/token APIs,
+errors, Range requests, event streams and WebSocket upgrades are outside this policy.
+Existing upstream encodings are preserved rather than encoded twice. See
+[architecture](architecture.md#response-compression) for the full policy.
+
+The policy adds no response cache and never caches authentication decisions. Each network
+request still passes the existing gate and access checks. The session list overrides
+upstream cache headers with `Cache-Control: private, no-store`. Other resources keep their
+cache policy and validators; `Vary: Accept-Encoding` distinguishes encoded representations.
+Correctly changed ETags expose backend updates on revalidation, but an unexpired browser
+cache can still serve an old same-URL asset. Use versioned asset URLs; `no-store` does not
+purge browser state, Service Workers or data already stored by the application.
+
+**Residual risk:** HTTPS compression can disclose information through response lengths
+when a response combines a secret with attacker-controlled text (BREACH). Excluding login
+HTML and credential endpoints narrows exposure, but is not a proof that every compressed
+response is safe. Session metadata can be sensitive and its list is compressed. Reassess
+the allowlist whenever upstream changes response content or paths; if secrets and
+attacker-controlled text become mixed, exclude the affected route from compression in
+Caddy, the upstream and any outer proxy. `no-store` and authentication do not remove this
+side channel. Keep LAN mode on trusted networks and retain edge Origin checks. See the
+[HTTP gzip security warning](https://nginx.org/en/docs/http/ngx_http_gzip_module.html).
+
+Compression trades CPU for fewer transferred bytes. Do not expand the allowlist to all
+APIs merely to improve a benchmark. The integration tests cover backend changes, session
+revocation, private cache headers and cross-origin rejection; they do not prove the
+absence of compression side channels.
+
 ## The container itself
 
 - Runs as uid/gid `1000` (the non-root account inside the image), and at startup adjusts the owner of `/data` and `/workspace` to `1000:1000` before dropping privileges.

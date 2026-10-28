@@ -89,10 +89,40 @@ Manual release: Actions → `release` → *Run workflow*.
 | `version` | Empty = resolve the highest version automatically; you can also name an exact version |
 | `force` | Checked = rebuild even if the `dsh-v<version>` tag already exists (re-publishing the same version, or refreshing an image after a Dockerfile change) |
 
-Running it again for an already-published version takes the **skip branch**: `resolve`
-sees the tag already exists → `build=false` → everything after that is skipped, so no
-build time is wasted. **A push that only changes this repository's docs or scripts does
-not republish anything** — use `force`.
+A run skips building only when the selected DSH release already records the same DSH,
+Node, Caddy and remote sign-in versions. A legacy release without component metadata is
+rebuilt once. `force=true` also rebuilds unchanged inputs, for example to ship a proxy
+configuration fix without changing any component version. Force does not disable Docker's
+layer cache. Documentation-only pushes do not trigger release.
+
+## Component version policy
+
+| Component | Selection during release |
+|---|---|
+| DSH | Highest published semver, including prereleases, or the manual `version` input |
+| Node | Project pin `DEFAULT_NODE_VERSION=24.21.0`; upstream `engines.node` is diagnostic only and cannot change the runtime version |
+| Caddy | Latest stable GitHub Release from `caddyserver/caddy`, with Linux amd64 and arm64 assets required |
+| Remote sign-in plugin | Highest stable semver Git tag from `MeiXu6693/dsh-remote-signin`; prerelease tags are excluded (the project does not currently publish GitHub Releases) |
+| pnpm | Dockerfile `PNPM_VERSION=12` selects within major 12 when its install layer runs |
+| OS packages and npm transitive dependencies | Resolve when install layers run; reused build cache can retain older results |
+
+`scripts/resolve-component-versions.mjs` resolves components once per release and passes
+the same exact values to verification and publishing. API errors or incomplete Caddy
+releases stop the run rather than silently selecting an older version. Static gates,
+both-mode proxy assertions and the full image smoke must pass before publication. Changes
+to upstream APIs can therefore block an automatic update until compatibility is restored.
+
+Release notes record the versions and a `dsh-build-inputs` marker for the next comparison;
+do not remove that marker when editing notes. A component-only update republishes the
+existing DSH image tags and updates its Release notes without moving the existing Git tag.
+Use an image digest for an immutable deployment, and use the workflow commit plus recorded
+component versions to audit a rebuild. Pull and recreate containers to apply updates.
+
+Direct `docker build` still uses the Dockerfile's explicit Caddy and plugin defaults;
+automatic selection is performed by release CI. Pass `CADDY_VERSION` and
+`REMOTE_SIGNIN_VERSION` build arguments to reproduce a selected release locally.
+Validation CI also resolves the current stable Caddy. Runtime Node changes require an
+explicit update to the project pin and Dockerfile default, followed by the image tests.
 
 ## Repository settings to confirm
 
