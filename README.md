@@ -113,8 +113,8 @@ Everything in `/data` and `/workspace` survives.
 | Tag | Meaning |
 |---|---|
 | `:latest` | Newest build, upstream prereleases included |
-| `:0.2.1-alpha.5-r1` | Pin one published image build |
-| `:0.2.1-alpha.5` | Follow the newest build of this DSH version |
+| `:0.2.1-alpha.5` | First published build of this DSH version |
+| `:0.2.1-alpha.5-r1` | Second published build; later rebuilds use `-r2`, `-r3`, … |
 | `:alpha` · `:rc` · `:stable` | Follow one upstream channel |
 
 An hourly job checks upstream, rebuilds and smoke-tests the image, and publishes only when the checks pass. Upstream currently ships alpha/rc builds, so `:latest` moves often — pin a build revision tag if you would rather update on your own schedule.
@@ -131,10 +131,11 @@ GitHub Release and the remote sign-in plugin's highest stable Git tag. A compone
 triggers a rebuild even when DSH is unchanged; verification must pass before publishing.
 Runtime Node follows an exact upstream `engines.node`; ranges or missing requirements
 use the project fallback (`24.21.0`).
-Each publication adds a build suffix: `0.2.1-rc.4-r1`, then `0.2.1-rc.4-r2`.
-A new DSH version starts at `r1`; component updates and forced rebuilds advance the suffix.
-Each build has its own image tag and GitHub Release. The unsuffixed DSH tag, `latest` and
-channel tags follow the newest build; pin a revision tag or digest to retain one build. See the [component version policy](CONTRIBUTING.md#component-version-policy).
+The first build uses `0.2.1-rc.4`; the second uses `0.2.1-rc.4-r1`, then `-r2`.
+A new DSH version starts without a suffix. Component updates and forced rebuilds advance
+the build counter. Every versioned image tag (including the unsuffixed first build) and
+GitHub Release is retained; only `latest` and channel tags follow the newest build.
+Pin a versioned tag or digest to retain one build. See the [component version policy](CONTRIBUTING.md#component-version-policy).
 
 ## Security
 

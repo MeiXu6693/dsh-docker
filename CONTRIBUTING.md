@@ -70,15 +70,16 @@ version and takes the highest by semver; prereleases participate per the spec.
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `validate` | Every push and PR | Static gates + shellcheck + hadolint + `caddy validate` + script end-to-end |
-| `release` | Hourly cron (:17), pushes touching the image, manual | Resolve version → **static gates** → build amd64 → smoke → push amd64+arm64 (`:<version>-r<N>`, `:<version>`, `:latest`, `:<channel>`) → create a build-specific tag and Release |
+| `release` | Hourly cron (:17), pushes touching the image, manual | Resolve version → **static gates** → build amd64 → smoke → push amd64+arm64 (first `:<version>`, then `:<version>-r<N>`; `:latest`, `:<channel>`) → create a build-specific tag and Release |
 
-The upstream version is preserved as the base; our build suffix is `-r<N>`. For example,
-DSH `0.2.1-rc.4` produces image `:0.2.1-rc.4-r1` and Release `dsh-v0.2.1-rc.4-r1`.
-A component update or forced build produces `r2`; a new DSH version starts at `r1`.
-The next revision is one above the highest recorded revision for that DSH version
-(numeric ordering, including drafts to avoid collisions). A failure before any Release
-is recorded does not consume a revision. Release runs are serialized across branches.
-Historical unsuffixed releases remain intact; the first revisioned build starts at `r1`.
+The first build preserves the upstream version exactly: image `:0.2.1-rc.4` and Release
+`dsh-v0.2.1-rc.4`. The second build adds `-r1`, the third `-r2`; a new DSH version starts
+without a suffix. Component updates and forced builds increment the counter. Internally,
+`DSH_REVISION` counts builds from 1, so the suffix is revision minus one. The next counter
+is one above the highest recorded build for that DSH version, using numeric order and
+including drafts to avoid collisions. A failure before any Release is recorded does not
+consume a counter. Release runs are serialized across branches. Historical unsuffixed
+releases count as the first build; missing metadata triggers a new `-r1` build.
 
 **The gates are shared**: the verify step in `release` runs exactly the
 `scripts/check-static.sh` that `validate` uses, so **a commit that fails the checks
@@ -93,8 +94,8 @@ Manual release: Actions → `release` → *Run workflow*.
 | `force` | Checked = publish the next build revision even if all component versions are unchanged |
 
 A run skips building only when the selected DSH release already records the same DSH,
-Node, Caddy and remote sign-in versions. A legacy release without a revisioned build is
-followed by an `r1` build. `force=true` also rebuilds unchanged inputs, for example to ship a proxy
+Node, Caddy and remote sign-in versions. A legacy release without component metadata is
+followed by an `-r1` build. `force=true` also rebuilds unchanged inputs, for example to ship a proxy
 configuration fix without changing any component version. Force does not disable Docker's
 layer cache. Documentation-only pushes do not trigger release.
 
@@ -118,8 +119,8 @@ to upstream APIs can therefore block an automatic update until compatibility is 
 Release notes record the versions and a `dsh-build-inputs` marker for the next comparison;
 do not remove that marker when editing notes. Every published revision gets a new image
 tag and Release targeting the workflow commit. The workflow never edits a previous build
-Release or moves its Git tag. The unsuffixed DSH image tag, `latest` and channel tags are
-moving aliases. Pin a revision tag or digest for reproducible deployment, and pull and
+Release or moves its Git tag. Only `latest` and channel tags are moving aliases; the unsuffixed DSH tag retains
+the first build. Pin a versioned tag or digest for reproducible deployment, and pull and
 recreate containers to apply updates. `/etc/dsh-version` records the build revision too.
 
 Direct `docker build` still uses the Dockerfile's explicit Caddy and plugin defaults;

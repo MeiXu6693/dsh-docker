@@ -10,8 +10,8 @@ name: release
 # 2026-10-15, latest=0.2.0-rc.2 while alpha=0.2.1-alpha.3). See
 # scripts/resolve-dsh-version.mjs for the resolution rules.
 #
-# Each publication adds -r<N> to the upstream version. Revision image tags and
-# Releases are retained; the unsuffixed DSH tag/latest/channel remain moving aliases.
+# First publication uses the upstream version unchanged; rebuilds add -r1, -r2.
+# All versioned image tags and Releases are retained; latest/channel are moving aliases.
 # Component versions in the newest revision's notes determine whether to rebuild.
 #
 # The Unraid template is NOT built or attached here any more: it lives in its own
@@ -202,7 +202,6 @@ jobs:
           cache-to: type=gha,mode=max,scope=publish
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.image_version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.channel }}
           build-args: |
@@ -219,7 +218,6 @@ jobs:
             echo "### Published"
             echo ''
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.image_version }}\` (build)"
-            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.version }}\` (upstream alias)"
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\` (moving)"
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.channel }}\` (channel)"
             echo "- digest: \`${{ steps.push.outputs.digest }}\`"
@@ -254,7 +252,7 @@ jobs:
           cat > notes.md <<EOF
           DeepSeek Harness **${version}**, image build **${{ needs.resolve.outputs.revision }}**. On Unraid it installs from Community Applications.
 
-          - image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${image_version}\` (also tagged \`${version}\`, \`latest\`, \`${{ needs.resolve.outputs.channel }}\`)
+          - image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${image_version}\` (also tagged \`latest\`, \`${{ needs.resolve.outputs.channel }}\`)
           - upstream package: \`@deepseek-ai/dsh@${version}\` (node \`${{ needs.resolve.outputs.node }}\`)
           - Caddy: \`${{ needs.resolve.outputs.caddy }}\`; remote sign-in: \`${{ needs.resolve.outputs.remote_signin }}\`
           - component updates rebuild the image even when the DSH version is unchanged; pull and recreate to apply

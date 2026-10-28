@@ -14,19 +14,20 @@ async function resolve({ caddy = release(), tags = ['v0.2.1', 'v0.3.0-rc.1', 'v0
         return tags.map(name => ({ name }))
       }
       assert.equal(path, '/repos/owner/repo/releases?per_page=100&page=1')
-      return revisions ?? (body === undefined ? [] : [{ tag_name: `dsh-v${dsh}-r1`, body }])
+      return revisions ?? (body === undefined ? [] : [{ tag_name: `dsh-v${dsh}`, body }])
     },
   })
 }
 const first = await resolve()
 assert.equal(first.build, true)
-assert.equal(first.image_version, '0.2.1-rc.4-r1')
-assert.equal(first.release_tag, 'dsh-v0.2.1-rc.4-r1')
+assert.equal(first.image_version, '0.2.1-rc.4')
+assert.equal(first.release_tag, 'dsh-v0.2.1-rc.4')
 assert.equal(first.remote_signin, 'v0.2.1')
 assert.equal(first.node, '24.21.0')
 const body = `Release notes\n<!-- dsh-build-inputs: ${first.build_inputs} -->`
 assert.equal((await resolve({ body })).build, false)
 assert.equal((await resolve({ body, force: true })).revision, 2)
+assert.equal((await resolve({ body, force: true })).image_version, '0.2.1-rc.4-r1')
 assert.equal((await resolve({ body, node: '25.0.0' })).revision, 2)
 assert.equal((await resolve({ body: 'Legacy release without metadata' })).build, true)
 assert.equal((await resolve({ body, caddy: release('2.12.0') })).build, true)
@@ -42,11 +43,12 @@ const history = [
   { tag_name: 'dsh-v0.2.1-rc.4-r9', body },
   { tag_name: 'dsh-v0.2.1-rc.4', body },
 ]
-assert.equal((await resolve({ revisions: history, force: true })).revision, 11)
-assert.equal((await resolve({ revisions: history })).revision, 10)
+assert.equal((await resolve({ revisions: history, force: true })).revision, 12)
+assert.equal((await resolve({ revisions: history })).revision, 11)
 assert.equal((await resolve({ revisions: history, dsh: '0.2.2' })).revision, 1)
-assert.equal((await resolve({ revisions: [...history, { tag_name: 'dsh-v0.2.1-rc.4-r11', draft: true }], force: true })).revision, 12)
-assert.equal((await resolve({ revisions: [{ tag_name: 'dsh-v0.2.1-rc.4', body }] })).revision, 1)
+assert.equal((await resolve({ revisions: [...history, { tag_name: 'dsh-v0.2.1-rc.4-r11', draft: true }], force: true })).revision, 13)
+assert.equal((await resolve({ revisions: [{ tag_name: 'dsh-v0.2.1-rc.4', body }] })).build, false)
+assert.equal((await resolve({ revisions: [{ tag_name: 'dsh-v0.2.1-rc.4', body: 'legacy' }] })).image_version, '0.2.1-rc.4-r1')
 console.log('component resolution passed: change detection, stable tags, pagination, selected Node, fail closed')
 
 // Exercise the actual DSH resolver: exact upstream Node wins; ranges use the fallback.

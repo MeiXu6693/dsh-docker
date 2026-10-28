@@ -38,7 +38,8 @@ export async function resolveComponents({ dsh, node, repository, force = false, 
   const remoteSignin = tags[0]
   const inputs = Buffer.from(JSON.stringify({ dsh, node, caddy, remote_signin: remoteSignin })).toString('base64url')
   // Each published build gets its own release; aliases may move, revision tags do not.
-  const prefix = `dsh-v${dsh}-r`
+  const baseTag = `dsh-v${dsh}`
+  const prefix = `${baseTag}-r`
   const releases = []
   for (let page = 1; ; page++) {
     if (page > 100) throw new Error('Release pagination limit reached')
@@ -47,16 +48,17 @@ export async function resolveComponents({ dsh, node, repository, force = false, 
     releases.push(...batch)
     if (batch.length < 100) break
   }
-  const revisions = releases.filter(item => item.tag_name?.startsWith(prefix))
-    .map(item => ({ ...item, revision: Number(item.tag_name.slice(prefix.length)) }))
-    .filter(item => Number.isSafeInteger(item.revision) && item.revision > 0 && item.tag_name === `${prefix}${item.revision}`)
+  const revisions = releases.filter(item => item.tag_name === baseTag || item.tag_name?.startsWith(prefix))
+    .map(item => ({ ...item, revision: item.tag_name === baseTag ? 1 : Number(item.tag_name.slice(prefix.length)) + 1 }))
+    .filter(item => Number.isSafeInteger(item.revision) && item.revision > 0 &&
+      (item.tag_name === baseTag || (item.revision > 1 && item.tag_name === `${prefix}${item.revision - 1}`)))
     .sort((a, b) => b.revision - a.revision)
   const published = revisions.find(item => !item.draft)
   const previous = published?.body?.match(/<!-- dsh-build-inputs: ([A-Za-z0-9_-]+) -->/)?.[1]
   const build = force || previous !== inputs
   const revision = build ? (revisions[0]?.revision ?? 0) + 1 : published.revision
   if (!Number.isSafeInteger(revision)) throw new Error('Build revision overflow')
-  const imageVersion = `${dsh}-r${revision}`
+  const imageVersion = revision === 1 ? dsh : `${dsh}-r${revision - 1}`
   return { caddy, remote_signin: remoteSignin, node, build_inputs: inputs, build,
     revision, image_version: imageVersion, release_tag: `dsh-v${imageVersion}` }
 
