@@ -7,8 +7,8 @@ Applications 模板、图标、CA 提交说明与迁移指南——在
 [MeiXu6693/dsh-unraid](https://github.com/MeiXu6693/dsh-unraid)。本仓库不得依赖那个仓库：
 镜像必须能独立构建与发布。
 
-面向用户的文档是 [README.md](README.md)（英文，默认）与 [README.zh-CN.md](README.zh-CN.md)
-（中文）；两者保持一致，改一个就同步另一个。`scripts/check-docs.mjs` 负责机器能查的那部分：
+面向用户的文档是 [README.md](README.md)（中文，默认）与 [README.en.md](README.en.md)
+（英文）；两者保持一致，改一个就同步另一个。`scripts/check-docs.mjs` 负责机器能查的那部分：
 锚点与相对链接必须能解析、`*.zh-CN.md` 必须链到对应的中文页、同一文档的两条语言轨必须有
 相同数量的 `##` 章节与相同的设置名。
 
