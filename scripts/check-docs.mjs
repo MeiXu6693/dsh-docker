@@ -11,7 +11,7 @@
  *   1. every in-file link `](#anchor)` resolves to a heading of that same file
  *   2. every relative link points at a file that exists
  *   3. a `*.zh-CN.md` page links the `.zh-CN` variant of a page that has one
- *   4. each document and its translation have the same number of `##` sections and
+ *   4. each document and its translation (including README.md / README.en.md) have the same number of `##` sections and
  *      mention the same `SETTING_NAMES` (env vars in code spans)
  *
  * Usage:
@@ -135,14 +135,15 @@ function checkTree(root) {
       // translated one sits next to it. Two deliberate exceptions: the language
       // switcher above the title, and a line that names both variants on purpose.
       if (
-        /\.zh-CN\.md$/.test(file) &&
+        (/\.zh-CN\.md$/.test(file) || rel(file) === 'README.md') &&
         targetPath.endsWith('.md') &&
         !targetPath.endsWith('.zh-CN.md') &&
         line > firstHeading &&
         !onSameLine(link, '.zh-CN.md')
       ) {
         const translated = `${targetPath.slice(0, -'.md'.length)}.zh-CN.md`;
-        if (existsSync(resolve(dirname(file), translated))) {
+        if (resolve(dirname(file), targetPath) !== resolve(root, 'README.md') &&
+            resolve(dirname(file), translated) !== file && existsSync(resolve(dirname(file), translated))) {
           failures.push(
             `${rel(file)}:${line}: links "${targetPath}", but ` +
               `"${relative(dirname(file), resolve(dirname(file), translated)).split(sep).join('/')}" exists`,
@@ -154,8 +155,8 @@ function checkTree(root) {
 
   // Each document and its translation: same shape, same settings.
   for (const file of files) {
-    if (file.endsWith('.zh-CN.md')) continue;
-    const translated = file.replace(/\.md$/, '.zh-CN.md');
+    if (file.endsWith('.zh-CN.md') || rel(file) === 'README.en.md') continue;
+    const translated = rel(file) === 'README.md' ? resolve(root, 'README.en.md') : file.replace(/\.md$/, '.zh-CN.md');
     if (!existsSync(translated)) continue;
     const source = scans.get(file);
     const mirror = scans.get(translated);
@@ -210,6 +211,9 @@ function selfTest() {
     write('docs/guide.zh-CN.md', '# 指南\n\n## 小节\n\n见 [other](other.md)。\n');
     // The translation drifts: one section too many, and it lost a setting name.
     write('docs/other.zh-CN.md', '# 其他\n\n## 甲\n\n## 乙\n\n`AUTH_MODE`\n');
+    write('README.md', '# 首页\n\n## 设置\n\n`AUTH_MODE`\n');
+    write('README.en.md', '# Readme\n\n## Settings\n\n`AUTH_MODE`\n');
+    write('README.zh-CN.md', '# 中文\n\n[首页](README.md)\n');
     write('broken.md', '# Broken\n\n## One\n\n[a](#nope) [b](missing.md)\n');
 
     const clean = checkTree(root);
@@ -229,6 +233,11 @@ function selfTest() {
       console.error('docs gate self-test FAILED');
       for (const failure of missed) console.error(`  not reported: ${failure}`);
       for (const failure of unexpected) console.error(`  reported though not planted: ${failure}`);
+      return 1;
+    }
+    write('README.en.md', '# Readme\n\n## Settings\n\n`OTHER_SETTING`\n');
+    if (!checkTree(root).some((failure) => failure.includes('README.md / README.en.md disagree on settings'))) {
+      console.error('docs gate self-test FAILED: README language drift was not reported');
       return 1;
     }
     console.log('docs gate self-test ok: every planted mistake was reported');

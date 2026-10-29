@@ -7,8 +7,8 @@ This repository builds and publishes the container image `ghcr.io/meixu6693/dsh`
 and the migration guide — lives in [MeiXu6693/dsh-unraid](https://github.com/MeiXu6693/dsh-unraid).
 Nothing here may depend on that repository: the image must build and publish on its own.
 
-User-facing content is in [README.md](README.md) (English, the default) and
-[README.zh-CN.md](README.zh-CN.md) (Chinese); the two are kept in sync, so update both
+User-facing content is in [README.md](README.md) (Chinese, the default) and
+[README.en.md](README.en.md) (English); the two are kept in sync, so update both
 whenever you change one. `scripts/check-docs.mjs` enforces what a script can: anchors and
 relative links that resolve, a `*.zh-CN.md` page linking the translated variant, and the two
 tracks of a document having the same number of `##` sections and the same setting names.
