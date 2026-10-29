@@ -76,6 +76,25 @@ jobs:
           chmod +x "${RUNNER_TEMP}/dsh-caddy"
           CADDY_BIN="${RUNNER_TEMP}/dsh-caddy" node scripts/test-proxy-compression.mjs
 
+      - name: Set up QEMU for release action validation
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Buildx for release action validation
+        uses: docker/setup-buildx-action@v4
+
+      - name: Prepare a minimal multi-architecture build
+        run: |
+          mkdir -p "${RUNNER_TEMP}/dsh-buildx-check"
+          printf 'FROM scratch\nLABEL purpose=dsh-action-validation\n' > "${RUNNER_TEMP}/dsh-buildx-check/Dockerfile"
+
+      - name: Verify build-push action without publishing
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ runner.temp }}/dsh-buildx-check
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+
       - name: Image layers survive a revision change
         run: bash scripts/test-layer-reuse.sh
 
