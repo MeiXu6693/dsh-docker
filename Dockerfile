@@ -40,7 +40,7 @@ ARG DSH_VERSION
 #   * git also needs github.com:443, which was unreachable from this host (25 s timeout)
 #     while codeload.github.com answered in 1.2 s — a tarball needs only the latter, and
 #     no git binary at all.
-ARG REMOTE_SIGNIN_VERSION=v0.2.2
+ARG REMOTE_SIGNIN_VERSION=v0.2.3
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 WORKDIR /app
 
@@ -154,7 +154,7 @@ RUN set -eux; \
 # Declare volatile build arguments only after the large installation layers.
 ARG DSH_VERSION
 ARG CADDY_VERSION
-ARG REMOTE_SIGNIN_VERSION=v0.2.2
+ARG REMOTE_SIGNIN_VERSION=v0.2.3
 ARG DSH_REVISION=1
 ARG SOURCE_REPO=dsh-docker
 
