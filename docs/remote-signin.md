@@ -156,7 +156,7 @@ names the claim and its own version when it loads:
 [entrypoint] remote sign-in: on — a remote browser finishes the sign-in in the DSH page:
              when the login tab lands on the dead http://127.0.0.1:47821 page, a panel
              appears there to paste its address into
-[remote-signin] active — v0.2.0, claim http://127.0.0.1:47821, panel at
+[remote-signin] active — v0.2.2, claim http://127.0.0.1:47821, panel at
              /remote-signin/inpage.js
 ```
 
@@ -184,7 +184,7 @@ same place; the panel exists for the times when the tunnel is not at hand.
 | `REMOTE_SIGNIN_ORIGIN` | `http://127.0.0.1:47821` | The loopback origin claimed with the platform. Must be `http://` + one of `127.0.0.1` / `localhost` / `[::1]` + an explicit port; nothing may listen there. |
 
 The plugin's version is pinned by the `REMOTE_SIGNIN_VERSION` build argument in the
-[Dockerfile](../Dockerfile) (`v0.1.1` today) — an image gets the version it was built and
+[Dockerfile](../Dockerfile) (`v0.2.2` today) — an image gets the version it was built and
 tested with, and the plugin's own CI is what validates it.
 
 ## Troubleshooting
@@ -209,7 +209,7 @@ tested with, and the plugin's own CI is what validates it.
 | `/usr/local/bin/entrypoint.sh` | this repository | Decides whether to load the plugin, validates `REMOTE_SIGNIN_ORIGIN`, and names the standalone page in the log. |
 | `/etc/caddy/Caddyfile.{edge,lan}` | this repository | No route of its own for the plugin: `/remote-signin/inpage.js` is proxied like any other path, behind the same gate as the UI. |
 
-The image pins a **tag** of the plugin repository (`REMOTE_SIGNIN_VERSION`, `v0.1.1`
+The image pins a **tag** of the plugin repository (`REMOTE_SIGNIN_VERSION`, `v0.2.2`
 today): the plugin's CI validates it, and an image gets the version it was built with.
 If `deepseekAccount.startSignIn` or the platform's callback contract changes, the plugin
 stops applying itself (and says so) rather than breaking the container; the paste flow
