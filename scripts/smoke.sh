@@ -369,23 +369,16 @@ fi
 # callback back to DSH's own route.
 #
 # Three things have to hold, and each has failed in some design: the plugin must load and
-# claim its origin; the panel script must be served and gated like every other surface;
-# and the document must actually carry the injected panel — the panel is the *only* way
-# the code comes back, so a missing injection is not a missing convenience, it is the
-# whole feature. The path it targets must also be reachable *only* while an attempt
-# waits: a permanently live /oauth/callback would be a worse design than the bug it fixes.
-PANEL_CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
-    "${SMOKE_AUTH[@]}" "http://127.0.0.1:${PORT}/remote-signin/inpage.js" || true)"
-PANEL_BODY="$(curl --silent --max-time 5 "${SMOKE_AUTH[@]}" "http://127.0.0.1:${PORT}/remote-signin/inpage.js" || true)"
-if [[ "${PANEL_CODE}" == "200" ]] && grep --quiet -- 'dsh-remote-signin-panel' <<< "${PANEL_BODY}"; then
-    pass '/remote-signin/inpage.js serves the in-page panel script'
-else
-    fail "/remote-signin/inpage.js answered ${PANEL_CODE} without the panel markup"
-fi
+# claim its origin; the panel script must be served to the page's own session, like every
+# other page resource; and the document must actually carry the injected panel — the panel
+# is the *only* way the code comes back, so a missing injection is not a missing
+# convenience, it is the whole feature. The path it targets must also be reachable *only*
+# while an attempt waits: a permanently live /oauth/callback would be a worse design than
+# the bug it fixes.
 # The document itself is the other half of "automatic": without this row injected the
 # panel never runs and the sign-in cannot be finished at all. The cookie jar matters: the
 # first request answers 303 with a launch token, and the request that follows it needs the
-# DSH session cookie that response set.
+# DSH session cookie that response set — the same jar then fetches the panel script.
 INDEX_JAR="${WORKDIR}/index-cookies.txt"
 INDEX_HTML="$(curl --silent --location --max-time 10 --cookie-jar "${INDEX_JAR}" --cookie "${INDEX_JAR}" \
     "${SMOKE_AUTH[@]}" "http://127.0.0.1:${PORT}/" || true)"
@@ -393,6 +386,19 @@ if grep --quiet -- 'remote-signin/inpage.js' <<< "${INDEX_HTML}"; then
     pass 'the DSH document carries the injected panel script'
 else
     fail 'the DSH document does not reference the panel script, so the panel would never appear'
+fi
+# The panel is a page resource, and dsh 0.2.3 enforces the session on every authenticated
+# route even from loopback: measured 2026-11-23, dsh 0.2.2-rc.5 answered 200 to a request
+# with no DSH cookie, 0.2.3-alpha.2 answers 401. Fetch it the way the page does — with the
+# session cookie the document above minted — and the assertion holds on both.
+PANEL_CODE="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
+    --cookie "${INDEX_JAR}" "${SMOKE_AUTH[@]}" "http://127.0.0.1:${PORT}/remote-signin/inpage.js" || true)"
+PANEL_BODY="$(curl --silent --max-time 5 --cookie "${INDEX_JAR}" "${SMOKE_AUTH[@]}" \
+    "http://127.0.0.1:${PORT}/remote-signin/inpage.js" || true)"
+if [[ "${PANEL_CODE}" == "200" ]] && grep --quiet -- 'dsh-remote-signin-panel' <<< "${PANEL_BODY}"; then
+    pass '/remote-signin/inpage.js serves the in-page panel script to the page session'
+else
+    fail "/remote-signin/inpage.js answered ${PANEL_CODE} without the panel markup"
 fi
 CALLBACK_IDLE="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
     "${SMOKE_AUTH[@]}" "http://127.0.0.1:${PORT}/oauth/callback?code=smoke-test&state=smoke-test" || true)"
