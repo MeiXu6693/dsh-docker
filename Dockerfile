@@ -22,7 +22,7 @@
 #     docs/remote-signin.md. The plugin is installed from its own repository and
 #     pinned by tag below; nothing of it is maintained here.
 
-ARG NODE_VERSION=24.21.0
+ARG NODE_VERSION=24.22.3
 ARG CADDY_VERSION=2.11.7
 
 # ---------------------------------------------------------------- runtime deps

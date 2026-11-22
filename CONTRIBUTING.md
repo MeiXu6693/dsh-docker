@@ -36,7 +36,7 @@ tracks of a document having the same number of `##` sections and the same settin
 # Build (the version number comes from npm, see below)
 docker build \
   --build-arg DSH_VERSION=0.2.1-alpha.4 \
-  --build-arg NODE_VERSION=24.21.0 \
+  --build-arg NODE_VERSION=24.22.3 \
   --build-arg CADDY_VERSION=2.11.7 \
   -t dsh:local .
 
@@ -104,7 +104,7 @@ layer cache. Documentation-only pushes do not trigger release.
 | Component | Selection during release |
 |---|---|
 | DSH | Highest published semver, including prereleases, or the manual `version` input |
-| Node | Exact upstream `engines.node` when provided; ranges or missing values use `DEFAULT_NODE_VERSION=24.21.0` |
+| Node | Exact upstream `engines.node` when provided; a range uses `DEFAULT_NODE_VERSION=24.22.3` while that satisfies it, otherwise the range's own lowest version; missing values use the default |
 | Caddy | Latest stable GitHub Release from `caddyserver/caddy`, with Linux amd64 and arm64 assets required |
 | Remote sign-in plugin | Highest stable semver Git tag from `MeiXu6693/dsh-remote-signin`; prerelease tags are excluded (the project does not currently publish GitHub Releases) |
 | pnpm | Dockerfile `PNPM_VERSION=12` selects within major 12 when its install layer runs |

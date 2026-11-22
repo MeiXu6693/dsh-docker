@@ -35,7 +35,7 @@ Applications 模板、图标、CA 提交说明与迁移指南——在
 # 构建（版本号来自 npm，见下）
 docker build \
   --build-arg DSH_VERSION=0.2.1-alpha.4 \
-  --build-arg NODE_VERSION=24.21.0 \
+  --build-arg NODE_VERSION=24.22.3 \
   --build-arg CADDY_VERSION=2.11.7 \
   -t dsh:local .
 
@@ -96,7 +96,7 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 | 组件 | 发版时如何选择 |
 |---|---|
 | DSH | 已发布的最高 semver（含预发布），或手动 `version` 输入 |
-| Node | 上游 `engines.node` 指定的精确版本；版本范围或缺失时使用 `DEFAULT_NODE_VERSION=24.21.0` |
+| Node | 上游 `engines.node` 指定的精确版本；版本范围在默认值 `DEFAULT_NODE_VERSION=24.22.3` 仍满足时用默认值，否则取该范围自身的最低版本；缺失时用默认值 |
 | Caddy | `caddyserver/caddy` 最新稳定 GitHub Release，必须具备 Linux amd64 与 arm64 安装包 |
 | 远程登录插件 | `MeiXu6693/dsh-remote-signin` 的最高稳定 semver Git tag，排除预发布 tag（该项目目前未发布 GitHub Release） |
 | pnpm | Dockerfile 的 `PNPM_VERSION=12`，安装层执行时在主版本 12 内选择 |

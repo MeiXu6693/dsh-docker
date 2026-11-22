@@ -146,7 +146,7 @@ existing static-resource cache policies and authentication remain in place.
 GitHub Release and the remote sign-in plugin's highest stable Git tag. A component change
 triggers a rebuild even when DSH is unchanged; verification must pass before publishing.
 Runtime Node follows an exact upstream `engines.node`; ranges or missing requirements
-use the project fallback (`24.21.0`).
+use the project fallback (`24.22.3`) while it satisfies the range, otherwise the range's own lowest version — so an upstream Node floor bump cannot silently ship an unsupported runtime.
 The first build uses `0.2.1-rc.4`; the second uses `0.2.1-rc.4-r1`, then `-r2`.
 A new DSH version starts without a suffix. Component updates and forced rebuilds advance
 the build counter. Every versioned image tag (including the unsuffixed first build) and

@@ -40,6 +40,7 @@ done
 echo
 echo '== component release policy =='
 node scripts/test-component-versions.mjs
+node scripts/test-resolve-node.mjs
 
 echo '== documentation =='
 # Anchors, relative links, and the English/Chinese tracks of every document that has

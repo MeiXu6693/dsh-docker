@@ -48,7 +48,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          node scripts/resolve-component-versions.mjs --dsh=0.0.0 --node=24.21.0 \
+          node scripts/resolve-component-versions.mjs --dsh=0.0.0 --node=24.22.3 \
             --repository="${GITHUB_REPOSITORY}" >> "${GITHUB_OUTPUT}"
 
       - name: Caddy configuration
