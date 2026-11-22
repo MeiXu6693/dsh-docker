@@ -42,11 +42,12 @@ import { pathToFileURL } from 'node:url'
  * resolver never returns one of these — not automatically, and not through the manual
  * `version` input — and `scripts/test-resolve-dsh-version.mjs` proves both.
  *
- * Each entry states the measured failure, the date, and what clears it. Remove an entry
- * once the release it names has a published closure that starts; the next scheduled run
- * then picks that release up on its own. Do not add an entry for a release that merely
- * behaves differently (a changed API, a moved endpoint): the smoke gate reports those,
- * and a red gate is how a compatibility break is supposed to look.
+ * Each entry states the measured failure, the date, and what clears it. A new upstream
+ * release is selected automatically, so the entry is simply dropped then; if only the
+ * missing dependency is published, the same version becomes buildable and the entry has
+ * to be removed by hand. Do not add an entry for a release that merely behaves
+ * differently (a changed API, a moved endpoint): the smoke gate reports those, and a red
+ * gate is how a compatibility break is supposed to look.
  */
 export const BLOCKED_VERSIONS = new Map([
   [

@@ -148,8 +148,11 @@ and is never selected — not automatically, and not through the manual `version
 which fails with the recorded reason. `scripts/test-resolve-dsh-version.mjs` holds that
 contract inside the shared static gate, so a red picker cannot publish. While an entry is
 in force a scheduled run resolves the newest selectable release, reports the excluded one
-in its summary and normally skips the build, publishing nothing. Remove an entry once a
-release whose closure starts is published; the next run picks it up by itself.
+in its summary and normally skips the build, publishing nothing.
+
+A new upstream release is selected automatically, so drop the obsolete entry then. If only
+the missing dependency is published, the excluded version becomes buildable without any
+new DSH release — remove the entry by hand and the next run builds it.
 
 | Version | Why it is excluded |
 |---|---|
