@@ -107,12 +107,6 @@ jobs:
             echo "- version: \`$(awk -F= '$1 == "version" { print $2 }' "${GITHUB_OUTPUT}")\`"
             echo "- node: \`$(awk -F= '$1 == "node" { print $2 }' "${GITHUB_OUTPUT}")\`"
             echo "- dist-tags: \`$(awk -F= '$1 == "dist_tags" { print $2 }' "${GITHUB_OUTPUT}")\`"
-            # A newer release can be published and still be unbuildable; say so here, or a
-            # green run that keeps an older version looks like a resolver bug.
-            excluded="$(awk -F= '$1 == "blocked" { print $2 }' "${GITHUB_OUTPUT}")"
-            if [ -n "${excluded}" ]; then
-              echo "- excluded: \`${excluded}\` (published but cannot start; see CONTRIBUTING.md)"
-            fi
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Resolve components and decide whether to build
