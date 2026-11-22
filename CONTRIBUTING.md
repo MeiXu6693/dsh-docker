@@ -103,7 +103,7 @@ layer cache. Documentation-only pushes do not trigger release.
 
 | Component | Selection during release |
 |---|---|
-| DSH | Highest published semver, including prereleases, or the manual `version` input |
+| DSH | Highest published semver, including prereleases, or the manual `version` input; a version on the exclusion list is never selected |
 | Node | Exact upstream `engines.node` when provided; ranges or missing values use `DEFAULT_NODE_VERSION=24.21.0` |
 | Caddy | Latest stable GitHub Release from `caddyserver/caddy`, with Linux amd64 and arm64 assets required |
 | Remote sign-in plugin | Highest stable semver Git tag from `MeiXu6693/dsh-remote-signin`; prerelease tags are excluded (the project does not currently publish GitHub Releases) |
@@ -137,6 +137,23 @@ automatic selection is performed by release CI. Pass `CADDY_VERSION` and
 `REMOTE_SIGNIN_VERSION` build arguments to reproduce a selected release locally.
 Validation CI also resolves the current stable Caddy. Runtime Node follows exact upstream requirements through the same image tests. Changing
 the fallback requires updating the project default and Dockerfile default explicitly.
+
+### Excluded upstream versions
+
+A published release can exist and still be unbuildable: if the release's own dependency
+closure is missing something it imports, the container exits before it serves anything,
+so there is no image to verify and re-selecting the previous release would only hide the
+failure. Such a version goes into `BLOCKED_VERSIONS` (`scripts/resolve-dsh-version.mjs`)
+and is never selected — not automatically, and not through the manual `version` input,
+which fails with the recorded reason. `scripts/test-resolve-dsh-version.mjs` holds that
+contract inside the shared static gate, so a red picker cannot publish. While an entry is
+in force a scheduled run resolves the newest selectable release, reports the excluded one
+in its summary and normally skips the build, publishing nothing. Remove an entry once a
+release whose closure starts is published; the next run picks it up by itself.
+
+| Version | Why it is excluded |
+|---|---|
+| `0.2.3-alpha.1` | Unstartable, measured 2026-11-22: `@deepseek-ai/dsh-app-boot` imports `EntryValidationError` from `@deepseek-ai/cordis-plugin-loader`, which no published version exports (`1.1.0` is the newest, and the dependency range `~1.1.0` admits nothing else). The process exits with that `SyntaxError` before `dsh web` prints a launch token, so the container never serves and the image smoke fails by design. |
 
 ## Repository settings to confirm
 

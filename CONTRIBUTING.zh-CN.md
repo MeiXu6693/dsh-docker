@@ -95,7 +95,7 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 
 | 组件 | 发版时如何选择 |
 |---|---|
-| DSH | 已发布的最高 semver（含预发布），或手动 `version` 输入 |
+| DSH | 已发布的最高 semver（含预发布），或手动 `version` 输入；排除列表中的版本永不选择 |
 | Node | 上游 `engines.node` 指定的精确版本；版本范围或缺失时使用 `DEFAULT_NODE_VERSION=24.21.0` |
 | Caddy | `caddyserver/caddy` 最新稳定 GitHub Release，必须具备 Linux amd64 与 arm64 安装包 |
 | 远程登录插件 | `MeiXu6693/dsh-remote-signin` 的最高稳定 semver Git tag，排除预发布 tag（该项目目前未发布 GitHub Release） |
@@ -121,6 +121,20 @@ Git tag。不带后缀的 DSH 镜像标签保留首次构建，只有 `latest` �
 执行。本地复现某次发布时传入 `CADDY_VERSION` 和 `REMOTE_SIGNIN_VERSION` 构建参数。
 验证 CI 也会解析当前稳定 Caddy。运行时 Node 按上游精确版本要求更新，并经过相同镜像测试；
 调整兜底版本时，需显式同步修改项目默认值与 Dockerfile 默认值。
+
+### 排除的上游版本
+
+已发布不等于可构建：若该版本自己的依赖闭包缺少它 import 的内容，容器在对外服务前就退出，
+既没有镜像可验证，改选上一个版本也只是掩盖问题。此类版本进入 `BLOCKED_VERSIONS`
+（`scripts/resolve-dsh-version.mjs`），永不选择——自动解析不会选，手动 `version` 输入也会
+带着记录的原因失败。`scripts/test-resolve-dsh-version.mjs` 在共享静态检查里守住这条约定，
+选择器变红就无法发布。条目生效期间，定时运行会解析最新可选的 release、在摘要中报告被排除的
+版本，通常跳过构建、不发布任何东西。待上游发布出依赖闭包可启动的版本后删除该条目，下一轮
+运行会自动选中它。
+
+| 版本 | 排除原因 |
+|---|---|
+| `0.2.3-alpha.1` | 无法启动，实测于 2026-11-22：`@deepseek-ai/dsh-app-boot` 从 `@deepseek-ai/cordis-plugin-loader` import `EntryValidationError`，而该包任何已发布版本都没有这个导出（最新为 `1.1.0`，依赖范围 `~1.1.0` 也容不下别的版本）。进程在 `dsh web` 打印启动 token 前就以该 `SyntaxError` 退出，容器因此从不对外服务，镜像冒烟按设计失败。 |
 
 ## 需要确认的仓库设置
 
