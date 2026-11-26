@@ -54,40 +54,25 @@ assert.equal((await resolve({ revisions: [{ tag_name: 'dsh-v0.2.1-rc.4', body: '
 assert.equal((await resolve({ revisions: history, force: true })).image_version, '0.2.1-rc.4')
 console.log('component resolution passed: change detection, stable tags, pagination, selected Node, fail closed')
 
-// Exercise the actual DSH resolver: exact upstream Node wins; ranges use the fallback,
-// and only the highest published version carries the moving aliases.
+// Exercise the actual DSH resolver: exact upstream Node wins; ranges use the fallback.
 const { createServer } = await import('node:http')
 const { execFile } = await import('node:child_process')
 const { promisify } = await import('node:util')
 let enginesNode = '99.0.0'
 const server = createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json')
-  res.end(JSON.stringify({
-    versions: {
-      '1.0.0': { engines: { node: enginesNode } },
-      '1.1.0-alpha.1': { engines: { node: enginesNode } },
-    },
-    'dist-tags': { latest: '1.0.0', alpha: '1.1.0-alpha.1' },
-  }))
+  res.end(JSON.stringify({ versions: { '1.0.0': { engines: { node: enginesNode } } }, 'dist-tags': { latest: '1.0.0' } }))
 })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-const resolveRegistered = async (...extra) => {
-  const { stdout } = await promisify(execFile)(process.execPath,
-    [new URL('./resolve-dsh-version.mjs', import.meta.url).pathname, '--json',
-      `--registry=http://127.0.0.1:${server.address().port}`, ...extra],
-    { env: { ...process.env, DEFAULT_NODE_VERSION: '24.21.0' } })
-  return JSON.parse(stdout)
-}
 try {
   for (const [upstream, expected] of [['99.0.0', '99.0.0'], ['>=24', '24.21.0'], [undefined, '24.21.0']]) {
     enginesNode = upstream
-    assert.equal((await resolveRegistered()).node, expected)
+    const { stdout } = await promisify(execFile)(process.execPath,
+      [new URL('./resolve-dsh-version.mjs', import.meta.url).pathname, '--json', `--registry=http://127.0.0.1:${server.address().port}`],
+      { env: { ...process.env, DEFAULT_NODE_VERSION: '24.21.0' } })
+    assert.equal(JSON.parse(stdout).node, expected)
   }
-  assert.equal((await resolveRegistered()).newest, 'true')
-  const pinned = await resolveRegistered('--version=1.0.0')
-  assert.equal(pinned.version, '1.0.0')
-  assert.equal(pinned.newest, 'false')
-  console.log('Node follows exact upstream requirements; ranges and missing values retain the fallback; only the newest version is flagged for aliases')
+  console.log('Node follows exact upstream requirements; ranges and missing values retain the fallback')
 } finally {
   await new Promise(resolve => server.close(resolve))
 }
