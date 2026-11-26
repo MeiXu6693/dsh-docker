@@ -112,7 +112,7 @@ environment:
 ## 更新
 
 ```bash
-docker pull ghcr.io/meixu6693/dsh:latest
+docker pull ghcr.io/meixu6693/dsh:latest      # 保守通道；要跟上游 alpha 就换成 :alpha
 docker compose up -d          # 或重建你自己的容器
 ```
 
@@ -120,11 +120,14 @@ docker compose up -d          # 或重建你自己的容器
 
 | 标签 | 含义 |
 |---|---|
-| `:latest` | 最新构建（含上游预发布版） |
+| `:latest` · `:next` · `:alpha` | 与上游 npm dist-tags 一一对应：镜像的 `:alpha` 就是 npm `alpha` 指向的版本，`:latest` 就是 npm `latest` 指向的版本 |
 | `:0.2.1-alpha.5` | 该 DSH 版本的镜像；重建会把同一标签重新指向新构建 |
-| `:alpha` · `:rc` · `:stable` | 跟随某个上游通道 |
 
-每小时有定时任务检查上游、重建并做冒烟测试，全部通过才发布。上游目前只有 alpha/rc，`:latest` 更新较频繁——想自己掌握节奏就固定版本标签或 digest。
+移动别名不跟"最新构建"而是跟上游自己的 dist-tags：npm 把 `latest` 留在旧版本时，镜像的
+`:latest` 也留在那里，不会把更新的预发布版冒充成默认版本（2026-11-26 的实测就是这样：
+npm `latest`=0.2.2-rc.5、`alpha`=0.2.3-alpha.2，镜像 `:latest` 停在 0.2.2-rc.5，`:alpha`
+指向 0.2.3-alpha.2）。每小时有定时任务检查上游，有新版才构建并冒烟测试；想把本机固定在
+alpha 通道，就把容器的镜像指向 `:alpha`，想自己掌握节奏就固定版本标签或 digest。
 
 公共压缩策略在拉取包含该变更的镜像并重建容器后生效，无需新增设置或依赖。它减少传输量，
 实际收益取决于内容、带宽与可用 CPU，不会加速模型推理。若外层代理为替换响应正文而清空
@@ -135,7 +138,7 @@ docker compose up -d          # 或重建你自己的容器
 最高稳定 Git tag。即使 DSH 版本未变，组件变化也会触发重建，验证通过后才发布。
 运行时 Node 跟随上游 `engines.node`：精确版本直接采用；版本范围在项目默认值 `24.22.3` 仍满足时用默认值，否则用该范围自身的最低版本（上游提高 Node 下限时不会悄悄发出不支持的运行时）；未指定则用默认值。镜像标签始终等于 DSH 版本：每次构建都推同一个 `:<版本>`，重建只是把这个标签
 重新指向新镜像；每次构建另有 `dsh-v<版本>`、`-r1`、`-r2` 的 GitHub Release。
-组件更新或强制重建递增构建计数，`latest` 与通道标签跟随最新构建。标签会被重建移动，
+组件更新或强制重建递增构建计数，移动别名不动——它们只跟上游的 npm dist-tags 对齐。标签会被重建移动，
 要复现某次构建请用 digest。
 详见[组件版本策略](CONTRIBUTING.zh-CN.md#组件版本策略)。
 

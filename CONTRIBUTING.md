@@ -63,14 +63,16 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 **Do not read only npm's `latest` tag.** Measured: `@deepseek-ai/dsh`'s `latest` lags
 behind `alpha` (2026-10-15: `latest`=`0.2.0-rc.2`, `alpha`=`0.2.1-alpha.3`), so a pipeline
 that reads only `latest` silently downgrades. The script enumerates every published
-version and takes the highest by semver; prereleases participate per the spec.
+version and takes the highest by semver; prereleases participate per the spec. It also
+reports `channel_tags` — the upstream dist-tags that name the selected version — which is
+the only input to the image's moving tags.
 
 ## Releasing
 
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `validate` | Every push and PR | Static gates + shellcheck + hadolint + `caddy validate` + script end-to-end |
-| `release` | Hourly cron (:17), pushes touching the image, manual | Resolve version → **static gates** → build amd64 → smoke → push amd64+arm64 (`:<version>` on every build; `:latest`, `:<channel>`) → create a build-specific Release |
+| `release` | Hourly cron (:17), pushes touching the image, manual | Resolve version → **static gates** → build amd64 → smoke → push amd64+arm64 (`:<version>` plus the upstream dist-tags naming it) → align the moving aliases with npm's dist-tags → create a build-specific Release |
 
 The image tag is the upstream version, unchanged, on every build: `:0.2.1-rc.4` whether it is
 the first build or a rebuild. Releases carry the build number instead: the first is
@@ -120,9 +122,16 @@ Release notes record the versions and a `dsh-build-inputs` marker for the next c
 do not remove that marker when editing notes. Every published build gets its own Release
 with a unique Git tag (`dsh-v<version>`, then `-r1`, `-r2`) targeting the workflow commit;
 the workflow never edits a previous Release or moves its Git tag. The image tag is always
-the DSH version: a rebuild re-points `:<version>`, as do the moving `latest` and channel
-aliases. Pin a digest for reproducible deployment, and pull and recreate containers to
-apply updates. `/etc/dsh-version` records the build revision too.
+the DSH version: a rebuild re-points `:<version>`. The moving aliases follow upstream's own
+npm dist-tags one for one — `:latest` is the image of whatever version npm's `latest` names,
+`:alpha` of whatever `alpha` names — so no channel is derived from the version string and an
+alpha build never moves `latest` (measured 2026-11-26: npm `latest`=0.2.2-rc.5,
+`alpha`=0.2.3-alpha.2). The `aliases` job re-points every dist-tag at the image of the
+version it names on every run, including runs that build nothing, and copies the manifest
+bytes verbatim so an alias digest equals its version tag's — otherwise Unraid would report a
+permanent update. A version no dist-tag names is reachable only by its version tag or a
+digest. Pin a digest for reproducible deployment, and pull and recreate containers to apply
+updates. `/etc/dsh-version` records the build revision too.
 
 
 Large runtime layers are ordered before versioned application files; linked COPY layers

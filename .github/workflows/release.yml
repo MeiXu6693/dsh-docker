@@ -12,7 +12,14 @@ name: release
 #
 # Image tags mirror DSH versions exactly: every build of a version pushes `:<version>`,
 # and a rebuild re-points that same tag. Each build still gets its own Release, with a
-# unique tag (`dsh-v<version>`, then `-r1`, `-r2`). `latest`/channel tags are moving aliases.
+# unique tag (`dsh-v<version>`, then `-r1`, `-r2`).
+#
+# The moving tags are upstream's own npm dist-tags, one for one: the image's `latest` is
+# the image of the version npm's `latest` names, `alpha` is npm's `alpha`, and so on. No
+# channel is derived from the version string. Measured 2026-11-26 — npm `latest`=0.2.2-rc.5
+# while `alpha`=0.2.3-alpha.2 — the newest version is an alpha build, so a build of it must
+# not move `latest`. The `aliases` job enforces that mapping on every run, including runs
+# that build nothing, by re-pointing each dist-tag at the image of the version it names.
 # Component versions in the newest revision's notes determine whether to rebuild.
 #
 # The Unraid template is NOT built or attached here any more: it lives in its own
@@ -76,7 +83,7 @@ jobs:
     outputs:
       version: ${{ steps.pick.outputs.version }}
       node: ${{ steps.pick.outputs.node }}
-      channel: ${{ steps.pick.outputs.channel }}
+      channel_tags: ${{ steps.pick.outputs.channel_tags }}
       dist_tags: ${{ steps.pick.outputs.dist_tags }}
       build: ${{ steps.components.outputs.build }}
       caddy: ${{ steps.components.outputs.caddy }}
@@ -100,14 +107,13 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/resolve-dsh-version.mjs --version='${{ inputs.version }}' >> "${GITHUB_OUTPUT}"
-          channel="$(awk -F= '$1 == "version" { print $2 }' "${GITHUB_OUTPUT}" | grep -oE 'alpha|beta|rc' | head -n1 || true)"
-          echo "channel=${channel:-stable}" >> "${GITHUB_OUTPUT}"
           {
             echo "### Resolved"
             echo ''
             echo "- version: \`$(awk -F= '$1 == "version" { print $2 }' "${GITHUB_OUTPUT}")\`"
             echo "- node: \`$(awk -F= '$1 == "node" { print $2 }' "${GITHUB_OUTPUT}")\`"
             echo "- dist-tags: \`$(awk -F= '$1 == "dist_tags" { print $2 }' "${GITHUB_OUTPUT}")\`"
+            echo "- moving tags this build sets: \`$(awk -F= '$1 == "channel_tags" { print $2 }' "${GITHUB_OUTPUT}")\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Resolve components and decide whether to build
@@ -185,6 +191,27 @@ jobs:
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
 
+      # Only the tags upstream itself points at this version: the exact version tag
+      # always, plus whichever npm dist-tags name it. `latest` is not part of every
+      # build — it is one of those dist-tags, and the aliases job keeps it honest for
+      # versions built earlier.
+      - name: Compose the tag list
+        id: tags
+        env:
+          VERSION: ${{ needs.resolve.outputs.image_version }}
+          CHANNEL_TAGS: ${{ needs.resolve.outputs.channel_tags }}
+        run: |
+          set -euo pipefail
+          {
+            echo 'tags<<DSH_TAGS'
+            echo "${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+            printf '%s\n' "${CHANNEL_TAGS}" | tr ',' '\n' | while read -r tag; do
+              [ -n "${tag}" ] || continue
+              echo "${REGISTRY}/${IMAGE_NAME}:${tag}"
+            done
+            echo 'DSH_TAGS'
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -203,10 +230,7 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=publish
           cache-to: type=gha,mode=max,scope=publish
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.image_version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.channel }}
+          tags: ${{ steps.tags.outputs.tags }}
           build-args: |
             DSH_VERSION=${{ needs.resolve.outputs.version }}
             NODE_VERSION=${{ needs.resolve.outputs.node }}
@@ -221,12 +245,84 @@ jobs:
             echo "### Published"
             echo ''
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.image_version }}\` (build)"
-            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\` (moving)"
-            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.channel }}\` (channel)"
+            for tag in $(printf '%s\n' '${{ needs.resolve.outputs.channel_tags }}' | tr ',' ' '); do
+              echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${tag}\` (npm dist-tag \`${tag}\`)"
+            done
             echo "- digest: \`${{ steps.push.outputs.digest }}\`"
             echo ''
             echo 'If this is the first publish, make the package public and give this repository'
             echo 'write access under the package settings (Manage Actions access).'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  aliases:
+    name: align the npm dist-tag aliases
+    needs: [resolve, publish]
+    # Runs when nothing was built, too: the aliases follow npm's dist-tags, not the build
+    # schedule, and this is the job that repairs them when a tag was moved by hand or by
+    # an older release layout. A failed publish keeps the aliases put so a broken build
+    # cannot advertise itself.
+    if: ${{ always() && needs.resolve.result == 'success' && needs.publish.result != 'failure' && needs.publish.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Point every dist-tag at the image of its version
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIST_TAGS: ${{ needs.resolve.outputs.dist_tags }}
+        run: |
+          set -euo pipefail
+          registry='ghcr.io'
+          repo="${GITHUB_REPOSITORY_OWNER,,}/dsh"
+          accept='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'
+          token="$(curl -fsS -u "${GITHUB_ACTOR}:${GHCR_TOKEN}" \
+            "https://${registry}/token?scope=repository:${repo}:pull,push&service=${registry}" |
+            jq -r .token)"
+
+          # The digest a tag currently resolves to, empty when the tag does not exist.
+          digest_of() {
+            curl -fsS -o /dev/null -D - -H "Authorization: Bearer ${token}" \
+              -H "Accept: ${accept}" "https://${registry}/v2/${repo}/manifests/$1" 2>/dev/null |
+              tr -d '\r' | awk -F': ' 'tolower($1) == "docker-content-digest" { print $2 }'
+          }
+
+          # Copy the manifest bytes verbatim. Re-creating an index with `buildx
+          # imagetools create` would mint a new digest for identical content, which shows
+          # up as a permanent "update available" in Unraid; copying keeps the alias
+          # digest equal to the version tag it mirrors.
+          copy_tag() {
+            local body headers media_type
+            body="$(mktemp)"
+            headers="${body}.headers"
+            curl -fsS -D "${headers}" -o "${body}" -H "Authorization: Bearer ${token}" \
+              -H "Accept: ${accept}" "https://${registry}/v2/${repo}/manifests/$1"
+            media_type="$(tr -d '\r' < "${headers}" | awk -F': ' 'tolower($1) == "content-type" { print $2 }')"
+            curl -fsS -X PUT -H "Authorization: Bearer ${token}" -H "Content-Type: ${media_type}" \
+              --data-binary "@${body}" "https://${registry}/v2/${repo}/manifests/$2" > /dev/null
+            rm -f "${body}" "${headers}"
+          }
+
+          moved=0
+          while IFS=: read -r tag version; do
+            [ -n "${tag}" ] && [ -n "${version}" ] || continue
+            source_digest="$(digest_of "${version}")" || true
+            if [ -z "${source_digest}" ]; then
+              echo "::warning::${registry}/${repo}:${version} does not exist; \`${tag}\` stays where it is"
+              continue
+            fi
+            current_digest="$(digest_of "${tag}")" || true
+            if [ "${current_digest}" = "${source_digest}" ]; then
+              echo "\`${tag}\` already points at ${version}"
+              continue
+            fi
+            copy_tag "${version}" "${tag}"
+            moved=$((moved + 1))
+            echo "\`${tag}\` -> ${version} (\`${source_digest}\`)"
+          done < <(printf '%s\n' "${DIST_TAGS}" | tr ',' '\n')
+
+          {
+            echo "### npm dist-tag aliases"
+            echo ''
+            echo "- dist-tags: \`${DIST_TAGS}\`"
+            echo "- aliases moved: ${moved}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   release:
@@ -252,10 +348,18 @@ jobs:
           version='${{ needs.resolve.outputs.version }}'
           image_version='${{ needs.resolve.outputs.image_version }}'
           tag='${{ needs.resolve.outputs.release_tag }}'
+          # The moving tags are upstream's own dist-tags, so the notes name exactly the
+          # ones this build set instead of claiming `latest` every time.
+          alias_list=''
+          for alias in $(printf '%s\n' '${{ needs.resolve.outputs.channel_tags }}' | tr ',' ' '); do
+            alias_list="${alias_list:+${alias_list}, }\`${alias}\`"
+          done
+          alias_line="${alias_list:+also tagged ${alias_list} (npm dist-tags pointing at this version)}"
+          alias_line="${alias_line:-this version holds no npm dist-tag; reach it by its exact version tag or a digest}"
           cat > notes.md <<EOF
           DeepSeek Harness **${version}**, image build **${{ needs.resolve.outputs.revision }}**. On Unraid it installs from Community Applications.
 
-          - image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${image_version}\` (also tagged \`latest\`, \`${{ needs.resolve.outputs.channel }}\`)
+          - image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${image_version}\` — ${alias_line}
           - the image tag is exactly the DSH version; this build re-points it, so pin a digest to freeze one build
           - upstream package: \`@deepseek-ai/dsh@${version}\` (node \`${{ needs.resolve.outputs.node }}\`)
           - Caddy: \`${{ needs.resolve.outputs.caddy }}\`; remote sign-in: \`${{ needs.resolve.outputs.remote_signin }}\`

@@ -19,6 +19,13 @@
  *   engines_node_raw=<the selected release's engines.node, verbatim>
  *   node_source=engines-exact|engines-range-floor|fallback
  *   dist_tags=<comma separated tag:version pairs>
+ *   channel_tags=<comma separated dist-tags that name the selected version, or empty>
+ *
+ * `channel_tags` is what decides the image's moving tags: upstream's own dist-tags are
+ * the channels, so the image mirrors them instead of inventing one from the version
+ * string. Measured 2026-11-26: `latest`=0.2.2-rc.5 while `alpha`=0.2.3-alpha.2 — reading
+ * only the newest version and calling it `latest` would publish an alpha build as the
+ * conservative default.
  *
  * Flags:
  *   --version=<x.y.z>   use this exact published version instead of resolving
@@ -116,6 +123,27 @@ export function resolveNodeVersion(enginesNode, fallback) {
   return { node: candidate.raw, source: 'engines-range-floor' }
 }
 
+/**
+ * Which of upstream's dist-tags name this exact version.
+ *
+ * These are the image's moving tags: `latest` follows npm's `latest`, `alpha` follows
+ * npm's `alpha`, and so on — no channel is derived from the version string. A version
+ * that no dist-tag names (`0.2.2-alpha.2` once `alpha` moved on) is reachable only
+ * through its exact version tag, which is what a pin should use.
+ *
+ * @param distTags - the packument's `dist-tags` object, or anything else.
+ * @param version - the version being built.
+ * @returns tag names, sorted; a leading `v` on either side is ignored.
+ */
+export function channelTagsFor(distTags, version) {
+  const wanted = String(version ?? '').trim().replace(/^v/, '')
+  if (wanted === '' || distTags === null || typeof distTags !== 'object') return []
+  return Object.entries(distTags)
+    .filter(([, value]) => String(value).trim().replace(/^v/, '') === wanted)
+    .map(([tag]) => tag)
+    .sort()
+}
+
 async function fetchJson(url) {
   const response = await fetch(url, {
     headers: { accept: 'application/json', 'user-agent': 'dsh-image-release' },
@@ -171,10 +199,12 @@ async function main() {
   const manifest = packument.versions[selected.raw] ?? {}
   const enginesNode = typeof manifest.engines?.node === 'string' ? manifest.engines.node.trim() : ''
   const { node: nodeVersion, source: nodeSource } = resolveNodeVersion(enginesNode, fallbackNode)
-  const distTags = Object.entries(packument['dist-tags'] ?? {})
+  const publishedTags = packument['dist-tags'] ?? {}
+  const distTags = Object.entries(publishedTags)
     .map(([tag, value]) => `${tag}:${value}`)
     .sort()
     .join(',')
+  const channelTags = channelTagsFor(publishedTags, selected.raw).join(',')
 
   const result = {
     package: packageName,
@@ -184,6 +214,7 @@ async function main() {
     engines_node_raw: enginesNode,
     node_source: nodeSource,
     dist_tags: distTags,
+    channel_tags: channelTags,
     published_versions: versions.length,
     pick,
   }

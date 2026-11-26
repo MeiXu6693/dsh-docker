@@ -60,14 +60,15 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 
 **不要只看 npm 的 `latest` 标签。** 实测：`@deepseek-ai/dsh` 的 `latest` 落后于 `alpha`
 （2026-10-15：`latest`=`0.2.0-rc.2`、`alpha`=`0.2.1-alpha.3`），只看 `latest` 的流水线会**静默降级**。
-脚本枚举所有已发布版本并按 semver 取最高者，预发布版按规范参与比较。
+脚本枚举所有已发布版本并按 semver 取最高者，预发布版按规范参与比较；同时输出
+`channel_tags`——指向所选版本的官方 dist-tags，镜像的移动别名只由它决定。
 
 ## 发布
 
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
 | `validate` | 每次 push / PR | 静态闸门 + shellcheck + hadolint + `caddy validate` + 脚本端到端 |
-| `release` | 每小时 :17、触及镜像的 push、手动 | 解析版本 → **静态闸门** → 构建 amd64 → 冒烟 → 推送 amd64+arm64（每次构建都用 `:<版本>`；`:latest`、`:<通道>`）→ 建独立 Release |
+| `release` | 每小时 :17、触及镜像的 push、手动 | 解析版本 → **静态闸门** → 构建 amd64 → 冒烟 → 推送 amd64+arm64（`:<版本>`，加上指向该版本的官方 dist-tags）→ 按上游 dist-tags 对齐移动别名 → 建独立 Release |
 
 镜像标签每次都等于上游版本：无论是首次还是重建，都是 `:0.2.1-rc.4`。
 构建序号只进 Release：首次是 `dsh-v0.2.1-rc.4`，第二次追加 `-r1`，第三次追加 `-r2`。组件更新或强制重建
@@ -108,8 +109,13 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 
 Release 说明记录组件版本及供下次比较的 `dsh-build-inputs` 标记，编辑说明时应保留该标记。
 每次成功发布新建 Release（Git tag 为 `dsh-v<版本>`，重建依次 `-r1`、`-r2`）并指向工作流提交，
-不编辑旧 Release、不移动已有 Git tag。镜像标签始终等于 DSH 版本：重建会重新指向 `:<版本>`，
-`latest` 与通道标签同样是移动别名。要复现某次构建请用 digest；拉取镜像并重建容器后更新才生效。
+不编辑旧 Release、不移动已有 Git tag。镜像标签始终等于 DSH 版本：重建会重新指向 `:<版本>`。
+移动别名与上游 npm dist-tags 一一对应，不从版本串推导通道：`:latest` 指向 npm `latest` 所说的版本，
+`:alpha` 指向 npm `alpha` 所说的版本。所以一次 alpha 构建不会动 `:latest`（2026-11-26 实测：
+npm `latest`=0.2.2-rc.5、`alpha`=0.2.3-alpha.2）。`aliases` 任务每次运行都会把每个官方 dist-tag
+搬到它所说版本的镜像上，重建被跳过时也跑；它逐字节复制 manifest，别名 digest 因此与版本标签完全一致，
+不会给 Unraid 制造永久"有更新"。已被官方标签放弃的版本只能靠 `:<版本>` 或 digest 复现。
+要复现某次构建请用 digest；拉取镜像并重建容器后更新才生效。
 `/etc/dsh-version` 也记录构建序号。
 
 

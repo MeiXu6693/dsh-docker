@@ -120,7 +120,7 @@ an install run through a `docker exec` that forgot `-u`. Both recipes:
 ## Update
 
 ```bash
-docker pull ghcr.io/meixu6693/dsh:latest
+docker pull ghcr.io/meixu6693/dsh:latest      # conservative channel; :alpha follows upstream alpha
 docker compose up -d          # or recreate your own container
 ```
 
@@ -128,11 +128,16 @@ Everything in `/data` and `/workspace` survives.
 
 | Tag | Meaning |
 |---|---|
-| `:latest` | Newest build, upstream prereleases included |
+| `:latest` · `:next` · `:alpha` | One for one with upstream's npm dist-tags: `:alpha` is the version npm's `alpha` names, `:latest` the version npm's `latest` names |
 | `:0.2.1-alpha.5` | The image for this DSH version; a rebuild re-points the same tag |
-| `:alpha` · `:rc` · `:stable` | Follow one upstream channel |
 
-An hourly job checks upstream, rebuilds and smoke-tests the image, and publishes only when the checks pass. Upstream currently ships alpha/rc builds, so `:latest` moves often — pin a version tag or digest if you would rather update on your own schedule.
+The moving tags follow upstream's own dist-tags, not the newest build: while npm keeps
+`latest` on an older version, this image's `:latest` stays there too, so a newer prerelease
+never masquerades as the default (measured 2026-11-26: npm `latest`=0.2.2-rc.5 while
+`alpha`=0.2.3-alpha.2, so `:latest` stays on 0.2.2-rc.5 and `:alpha` points at
+0.2.3-alpha.2). An hourly job checks upstream and builds only a version it has not built
+yet, smoke-testing it first; point your container at `:alpha` to follow the alpha channel,
+or pin a version tag or digest to move on your own schedule.
 
 The shared compression policy takes effect after pulling an image that contains it and
 recreating the container; no new setting or dependency is required. It reduces transfer
@@ -148,8 +153,9 @@ Runtime Node follows an exact upstream `engines.node`; ranges or missing require
 use the project fallback (`24.22.3`) while it satisfies the range, otherwise the range's own lowest version — so an upstream Node floor bump cannot silently ship an unsupported runtime.
 The image tag is always the DSH version: every build pushes `:<version>` and a rebuild
 re-points that tag. Each build still gets its own Release (`dsh-v<version>`, then `-r1`, `-r2`).
-Component updates and forced rebuilds advance the build counter; `latest` and channel tags
-follow the newest build. Tags move on rebuild, so pin a digest to retain one build. See the [component version policy](CONTRIBUTING.md#component-version-policy).
+Component updates and forced rebuilds advance the build counter; the moving tags do not
+budge — they only follow upstream's npm dist-tags. Tags move on rebuild, so pin a digest
+to retain one build. See the [component version policy](CONTRIBUTING.md#component-version-policy).
 
 ## Security
 
