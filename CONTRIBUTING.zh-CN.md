@@ -67,14 +67,14 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
 | `validate` | 每次 push / PR | 静态闸门 + shellcheck + hadolint + `caddy validate` + 脚本端到端 |
-| `release` | 每小时 :17、触及镜像的 push、手动 | 解析版本 → **静态闸门** → 构建 amd64 → 冒烟 → 推送 amd64+arm64（首次 `:<版本>`、后续 `:<版本>-r<N>`；`:latest`、`:<通道>`）→ 建独立构建 tag 与 Release |
+| `release` | 每小时 :17、触及镜像的 push、手动 | 解析版本 → **静态闸门** → 构建 amd64 → 冒烟 → 推送 amd64+arm64（每次构建都用 `:<版本>`；`:latest`、`:<通道>`）→ 建独立 Release |
 
-首次构建完全使用上游版本：镜像 `:0.2.1-rc.4` 与 Release `dsh-v0.2.1-rc.4`。
-第二次追加 `-r1`，第三次追加 `-r2`；DSH 升版后重新从不带后缀开始。组件更新或强制重建
+镜像标签每次都等于上游版本：无论是首次还是重建，都是 `:0.2.1-rc.4`。
+构建序号只进 Release：首次是 `dsh-v0.2.1-rc.4`，第二次追加 `-r1`，第三次追加 `-r2`。组件更新或强制重建
 递增计数。内部 `DSH_REVISION` 从 1 开始计数，因此后缀数字等于构建计数减一。
 下个计数取该 DSH 版本已记录的最大构建计数加一，按数字排序，包含草稿以避免冲突。
 创建 Release 记录之前失败不消耗计数；所有分支的发布任务串行执行。
-历史不带后缀的 Release 视为首次构建；缺少组件元数据时发布新的 `-r1`，保留历史记录。
+历史不带后缀的 Release 视为首次构建；缺少组件元数据时发布新的 `-r1` Release，保留历史记录。
 
 **闸门是共用的**：`release` 的 verify 步骤跑的就是 `validate` 用的那个 `scripts/check-static.sh`，
 所以**检查不过的提交什么都发不出去**（publish 与 release 两个 job 直接跳过）。两者曾经各自独立，
@@ -88,7 +88,7 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 | `force` | 勾选 = 即使全部组件版本未变，也发布下一个构建序号 |
 
 只有所选 DSH Release 已记录相同的 DSH、Node、Caddy 和远程登录插件版本时，才跳过构建。
-缺少组件元数据的历史 Release 会触发新的 `-r1` 构建。`force=true` 可在版本全未变时重建，例如发布代理
+缺少组件元数据的历史 Release 会触发新的 `-r1` Release。`force=true` 可在版本全未变时重建，例如发布代理
 配置修复；它不会禁用 Docker 层缓存。只改文档的 push 不触发 release。
 
 ## 组件版本策略
@@ -107,9 +107,10 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 的代理断言和完整镜像冒烟通过后才发布；上游接口变化因此可能阻止自动更新，需先修复兼容性。
 
 Release 说明记录组件版本及供下次比较的 `dsh-build-inputs` 标记，编辑说明时应保留该标记。
-每次成功发布新建构建标签及指向工作流提交的 Release，不编辑旧构建 Release、不移动已有
-Git tag。不带后缀的 DSH 镜像标签保留首次构建，只有 `latest` 与通道标签是移动别名。固定版本标签或
-镜像 digest 可复现部署；拉取镜像并重建容器后更新才生效。`/etc/dsh-version` 也记录构建序号。
+每次成功发布新建 Release（Git tag 为 `dsh-v<版本>`，重建依次 `-r1`、`-r2`）并指向工作流提交，
+不编辑旧 Release、不移动已有 Git tag。镜像标签始终等于 DSH 版本：重建会重新指向 `:<版本>`，
+`latest` 与通道标签同样是移动别名。要复现某次构建请用 digest；拉取镜像并重建容器后更新才生效。
+`/etc/dsh-version` 也记录构建序号。
 
 
 体积较大的运行层排在版本化应用文件之前；使用 linked COPY，使应用或 Caddy 文件未改变时

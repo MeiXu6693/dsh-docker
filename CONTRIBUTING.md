@@ -70,16 +70,16 @@ version and takes the highest by semver; prereleases participate per the spec.
 | Workflow | Trigger | What it does |
 |---|---|---|
 | `validate` | Every push and PR | Static gates + shellcheck + hadolint + `caddy validate` + script end-to-end |
-| `release` | Hourly cron (:17), pushes touching the image, manual | Resolve version → **static gates** → build amd64 → smoke → push amd64+arm64 (first `:<version>`, then `:<version>-r<N>`; `:latest`, `:<channel>`) → create a build-specific tag and Release |
+| `release` | Hourly cron (:17), pushes touching the image, manual | Resolve version → **static gates** → build amd64 → smoke → push amd64+arm64 (`:<version>` on every build; `:latest`, `:<channel>`) → create a build-specific Release |
 
-The first build preserves the upstream version exactly: image `:0.2.1-rc.4` and Release
-`dsh-v0.2.1-rc.4`. The second build adds `-r1`, the third `-r2`; a new DSH version starts
-without a suffix. Component updates and forced builds increment the counter. Internally,
+The image tag is the upstream version, unchanged, on every build: `:0.2.1-rc.4` whether it is
+the first build or a rebuild. Releases carry the build number instead: the first is
+`dsh-v0.2.1-rc.4`, the second adds `-r1`, the third `-r2`. Component updates and forced builds increment the counter. Internally,
 `DSH_REVISION` counts builds from 1, so the suffix is revision minus one. The next counter
 is one above the highest recorded build for that DSH version, using numeric order and
 including drafts to avoid collisions. A failure before any Release is recorded does not
 consume a counter. Release runs are serialized across branches. Historical unsuffixed
-releases count as the first build; missing metadata triggers a new `-r1` build.
+releases count as the first build; missing metadata triggers a new `-r1` Release.
 
 **The gates are shared**: the verify step in `release` runs exactly the
 `scripts/check-static.sh` that `validate` uses, so **a commit that fails the checks
@@ -95,7 +95,7 @@ Manual release: Actions → `release` → *Run workflow*.
 
 A run skips building only when the selected DSH release already records the same DSH,
 Node, Caddy and remote sign-in versions. A legacy release without component metadata is
-followed by an `-r1` build. `force=true` also rebuilds unchanged inputs, for example to ship a proxy
+followed by an `-r1` Release. `force=true` also rebuilds unchanged inputs, for example to ship a proxy
 configuration fix without changing any component version. Force does not disable Docker's
 layer cache. Documentation-only pushes do not trigger release.
 
@@ -117,11 +117,12 @@ both-mode proxy assertions and the full image smoke must pass before publication
 to upstream APIs can therefore block an automatic update until compatibility is restored.
 
 Release notes record the versions and a `dsh-build-inputs` marker for the next comparison;
-do not remove that marker when editing notes. Every published revision gets a new image
-tag and Release targeting the workflow commit. The workflow never edits a previous build
-Release or moves its Git tag. Only `latest` and channel tags are moving aliases; the unsuffixed DSH tag retains
-the first build. Pin a versioned tag or digest for reproducible deployment, and pull and
-recreate containers to apply updates. `/etc/dsh-version` records the build revision too.
+do not remove that marker when editing notes. Every published build gets its own Release
+with a unique Git tag (`dsh-v<version>`, then `-r1`, `-r2`) targeting the workflow commit;
+the workflow never edits a previous Release or moves its Git tag. The image tag is always
+the DSH version: a rebuild re-points `:<version>`, as do the moving `latest` and channel
+aliases. Pin a digest for reproducible deployment, and pull and recreate containers to
+apply updates. `/etc/dsh-version` records the build revision too.
 
 
 Large runtime layers are ordered before versioned application files; linked COPY layers

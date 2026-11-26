@@ -37,7 +37,9 @@ export async function resolveComponents({ dsh, node, repository, force = false, 
   if (!tags.length) throw new Error('No stable remote sign-in tag found')
   const remoteSignin = tags[0]
   const inputs = Buffer.from(JSON.stringify({ dsh, node, caddy, remote_signin: remoteSignin })).toString('base64url')
-  // Each published build gets its own release; aliases may move, revision tags do not.
+  // The image tag is always the upstream version, unchanged. Each published build
+  // still gets its own Release with a unique tag (`dsh-v<version>`, then `-r1`, `-r2`);
+  // a rebuild re-points the version image tag instead of inventing a suffixed one.
   const baseTag = `dsh-v${dsh}`
   const prefix = `${baseTag}-r`
   const releases = []
@@ -58,9 +60,10 @@ export async function resolveComponents({ dsh, node, repository, force = false, 
   const build = force || previous !== inputs
   const revision = build ? (revisions[0]?.revision ?? 0) + 1 : published.revision
   if (!Number.isSafeInteger(revision)) throw new Error('Build revision overflow')
-  const imageVersion = revision === 1 ? dsh : `${dsh}-r${revision - 1}`
+  // Image tags mirror DSH versions exactly; only Release tags carry the build suffix.
   return { caddy, remote_signin: remoteSignin, node, build_inputs: inputs, build,
-    revision, image_version: imageVersion, release_tag: `dsh-v${imageVersion}` }
+    revision, image_version: dsh,
+    release_tag: revision === 1 ? baseTag : `${baseTag}-r${revision - 1}` }
 
 }
 
