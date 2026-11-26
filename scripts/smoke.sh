@@ -689,9 +689,11 @@ docker run --detach --name "${ROOT_NAME}" \
     "${IMAGE}" >/dev/null
 
 root_code=""
+root_log=""
 root_served=0
 for _ in $(seq 1 30); do
-    if docker logs "${ROOT_NAME}" 2>&1 | grep --quiet 'starting Caddy'; then
+    root_log="$(docker logs "${ROOT_NAME}" 2>&1 || true)"
+    if grep --quiet 'starting Caddy' <<<"${root_log}"; then
         root_code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
             "${SMOKE_AUTH[@]}" "http://127.0.0.1:${ROOT_PORT}/" 2>/dev/null || true)"
         [[ "${root_code}" =~ ^[1-4][0-9]{2}$ ]] && { root_served=1; break; }
@@ -701,16 +703,24 @@ done
 if (( root_served == 1 )); then
     pass 'PUID=0 PGID=0 starts and serves the app'
 else
-    fail "PUID=0 PGID=0 did not serve the app (HTTP ${root_code:-none}); last log: $(docker logs "${ROOT_NAME}" 2>&1 | tail -n 3 | tr '\n' ' ')"
+    fail "PUID=0 PGID=0 did not serve the app (HTTP ${root_code:-none}); last log: $(tail -n 3 <<<"${root_log}" | tr '\n' ' ')"
 fi
-if docker logs "${ROOT_NAME}" 2>&1 | grep --quiet 'PUID=0: DSH runs as root'; then
+if grep --quiet 'PUID=0: DSH runs as root' <<<"${root_log}"; then
     pass 'PUID=0 warns that root mode gives up the non-root isolation'
 else
     fail 'PUID=0 started without its warning'
 fi
 # The uid of the process DSH actually runs as, read from its own /proc entry: `docker
-# exec` defaults to the container's root, so asserting that would prove nothing.
-root_dsh_uid="$(docker exec "${ROOT_NAME}" sh -c 'for f in /proc/[0-9]*/status; do if tr "\0" " " < "${f%/status}/cmdline" 2>/dev/null | grep --quiet "dsh/lib/bin.js"; then sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" "$f"; fi; done' 2>/dev/null | head -n 1)"
+# exec` defaults to the container's root, so asserting that would prove nothing. The
+# loop prints the first match and stops itself — piping into `head` would close the
+# pipe early and, under `pipefail`, turn a successful read into exit code 141.
+root_dsh_uid="$(docker exec "${ROOT_NAME}" sh -c '
+    for f in /proc/[0-9]*/status; do
+        tr "\0" " " < "${f%/status}/cmdline" 2>/dev/null | grep --quiet "dsh/lib/bin.js" || continue
+        sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" "$f"
+        break
+    done
+' 2>/dev/null)"
 if [[ "${root_dsh_uid}" == '0' ]]; then
     pass 'PUID=0 runs the DSH process as root'
 else
