@@ -13,7 +13,8 @@
  * and take the highest.
  *
  * Output (stdout): one `key=value` line per fact, suitable for $GITHUB_OUTPUT.
- *   version=<highest semver published>
+ *   version=<selected version>
+ *   newest=true|false, whether that version is the highest published
  *   stable=<highest semver without a prerelease suffix, or empty>
  *   node=<exact Node version to build with>
  *   engines_node_raw=<the selected release's engines.node, verbatim>
@@ -179,6 +180,7 @@ async function main() {
   const result = {
     package: packageName,
     version: selected.raw,
+    newest: selected.raw === highest.raw ? 'true' : 'false',
     stable: highestStable?.raw ?? '',
     node: nodeVersion,
     engines_node_raw: enginesNode,

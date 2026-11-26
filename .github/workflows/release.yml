@@ -12,7 +12,9 @@ name: release
 #
 # Image tags mirror DSH versions exactly: every build of a version pushes `:<version>`,
 # and a rebuild re-points that same tag. Each build still gets its own Release, with a
-# unique tag (`dsh-v<version>`, then `-r1`, `-r2`). `latest`/channel tags are moving aliases.
+# unique tag (`dsh-v<version>`, then `-r1`, `-r2`). `latest`/channel tags are moving aliases,
+# and only a build of the newest published version moves them (a manual dispatch of an
+# older version must not walk the aliases backwards).
 # Component versions in the newest revision's notes determine whether to rebuild.
 #
 # The Unraid template is NOT built or attached here any more: it lives in its own
@@ -77,6 +79,7 @@ jobs:
       version: ${{ steps.pick.outputs.version }}
       node: ${{ steps.pick.outputs.node }}
       channel: ${{ steps.pick.outputs.channel }}
+      newest: ${{ steps.pick.outputs.newest }}
       dist_tags: ${{ steps.pick.outputs.dist_tags }}
       build: ${{ steps.components.outputs.build }}
       caddy: ${{ steps.components.outputs.caddy }}
@@ -107,6 +110,7 @@ jobs:
             echo ''
             echo "- version: \`$(awk -F= '$1 == "version" { print $2 }' "${GITHUB_OUTPUT}")\`"
             echo "- node: \`$(awk -F= '$1 == "node" { print $2 }' "${GITHUB_OUTPUT}")\`"
+            echo "- newest: \`$(awk -F= '$1 == "newest" { print $2 }' "${GITHUB_OUTPUT}")\`"
             echo "- dist-tags: \`$(awk -F= '$1 == "dist_tags" { print $2 }' "${GITHUB_OUTPUT}")\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -185,6 +189,26 @@ jobs:
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
 
+      # Version tags are exact DSH versions, but the moving aliases must never travel
+      # backwards: a manual dispatch that rebuilds an older version still pushes its own
+      # tag and Release, and only the newest published version moves latest/channel.
+      - name: Compose image tags
+        id: tags
+        env:
+          VERSION: ${{ needs.resolve.outputs.image_version }}
+          NEWEST: ${{ needs.resolve.outputs.newest }}
+          CHANNEL: ${{ needs.resolve.outputs.channel }}
+        run: |
+          {
+            echo 'tags<<DSH_TAGS'
+            echo "${REGISTRY}/${IMAGE_NAME}:${VERSION}"
+            if [ "${NEWEST}" = 'true' ]; then
+              echo "${REGISTRY}/${IMAGE_NAME}:latest"
+              echo "${REGISTRY}/${IMAGE_NAME}:${CHANNEL}"
+            fi
+            echo 'DSH_TAGS'
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -203,10 +227,7 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=publish
           cache-to: type=gha,mode=max,scope=publish
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.image_version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.channel }}
+          tags: ${{ steps.tags.outputs.tags }}
           build-args: |
             DSH_VERSION=${{ needs.resolve.outputs.version }}
             NODE_VERSION=${{ needs.resolve.outputs.node }}
@@ -221,8 +242,12 @@ jobs:
             echo "### Published"
             echo ''
             echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.image_version }}\` (build)"
-            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\` (moving)"
-            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.channel }}\` (channel)"
+            if [ '${{ needs.resolve.outputs.newest }}' = 'true' ]; then
+              echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\` (moving)"
+              echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.resolve.outputs.channel }}\` (channel)"
+            else
+              echo "- \`latest\` and \`${{ needs.resolve.outputs.channel }}\` were not moved: this is not the newest published version"
+            fi
             echo "- digest: \`${{ steps.push.outputs.digest }}\`"
             echo ''
             echo 'If this is the first publish, make the package public and give this repository'
@@ -252,10 +277,16 @@ jobs:
           version='${{ needs.resolve.outputs.version }}'
           image_version='${{ needs.resolve.outputs.image_version }}'
           tag='${{ needs.resolve.outputs.release_tag }}'
+          if [ '${{ needs.resolve.outputs.newest }}' = 'true' ]; then
+            alias_line="- also tagged \`latest\` and \`${{ needs.resolve.outputs.channel }}\` (moving aliases)"
+          else
+            alias_line="- \`latest\` and \`${{ needs.resolve.outputs.channel }}\` were **not** moved: this build is not the newest published version"
+          fi
           cat > notes.md <<EOF
           DeepSeek Harness **${version}**, image build **${{ needs.resolve.outputs.revision }}**. On Unraid it installs from Community Applications.
 
-          - image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${image_version}\` (also tagged \`latest\`, \`${{ needs.resolve.outputs.channel }}\`)
+          - image: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${image_version}\`
+          ${alias_line}
           - the image tag is exactly the DSH version; this build re-points it, so pin a digest to freeze one build
           - upstream package: \`@deepseek-ai/dsh@${version}\` (node \`${{ needs.resolve.outputs.node }}\`)
           - Caddy: \`${{ needs.resolve.outputs.caddy }}\`; remote sign-in: \`${{ needs.resolve.outputs.remote_signin }}\`

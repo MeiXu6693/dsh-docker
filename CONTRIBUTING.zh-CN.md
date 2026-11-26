@@ -87,6 +87,8 @@ node scripts/resolve-dsh-version.mjs --version=0.2.1-alpha.4
 | `version` | 留空 = 自动解析最高版本；也可以指定确切版本 |
 | `force` | 勾选 = 即使全部组件版本未变，也发布下一个构建序号 |
 
+手动指定旧版本时只发布该版本自己的镜像标签与 Release，`latest` 与通道别名仍停在上游最新版。
+
 只有所选 DSH Release 已记录相同的 DSH、Node、Caddy 和远程登录插件版本时，才跳过构建。
 缺少组件元数据的历史 Release 会触发新的 `-r1` Release。`force=true` 可在版本全未变时重建，例如发布代理
 配置修复；它不会禁用 Docker 层缓存。只改文档的 push 不触发 release。

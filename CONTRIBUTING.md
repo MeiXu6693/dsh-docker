@@ -93,6 +93,9 @@ Manual release: Actions → `release` → *Run workflow*.
 | `version` | Empty = resolve the highest version automatically; you can also name an exact version |
 | `force` | Checked = publish the next build revision even if all component versions are unchanged |
 
+A manual run that names an older version publishes that version's image tag and a Release,
+but leaves `latest` and the channel alias on the newest published version.
+
 A run skips building only when the selected DSH release already records the same DSH,
 Node, Caddy and remote sign-in versions. A legacy release without component metadata is
 followed by an `-r1` Release. `force=true` also rebuilds unchanged inputs, for example to ship a proxy
