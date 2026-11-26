@@ -59,6 +59,7 @@ SMOKE_AUTH=(--user "dsh:${SMOKE_PASSWORD}")
 
 pass() { printf 'ok   %s\n' "$*"; }
 fail() { printf 'FAIL %s\n' "$*"; FAILURES=$((FAILURES + 1)); }
+note() { printf 'note %s\n' "$*"; }
 
 mkdir -p "${WORKDIR}/data" "${WORKDIR}/workspace"
 
