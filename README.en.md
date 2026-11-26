@@ -37,9 +37,9 @@ and login password. See [On Unraid](#on-unraid). On another Docker host, use Com
    curl -fsSLO https://raw.githubusercontent.com/MeiXu6693/dsh-docker/main/compose.yaml
    ```
 
-2. Create or edit `.env` in that directory and set your own login password. It must be at
-   least 8 characters and contain no whitespace. Keep the file secure. The default username
-   is `dsh`.
+2. Create or edit `.env` in that directory and set your own login password. It must be
+   non-empty and contain no whitespace (the gate hashes it as a single command-line
+   argument). Keep the file secure. The default username is `dsh`.
 
    ```dotenv
    DSH_PASSWORD=replace-with-your-own-password
@@ -88,7 +88,7 @@ Getting `403`, `SANDBOX_UNAVAILABLE`, or a login tab stuck at `127.0.0.1`? See [
 | `DSH_PASSWORD` | unset | Password for the built-in gate (or `DSH_PASSWORD_FILE`). **Required when `AUTH_MODE=builtin`**; set it, or set `AUTH_MODE=none` behind an authenticating proxy. |
 | `AUTH_USER` | `dsh` | User name for the built-in gate. |
 | `REMOTE_SIGNIN` | `on` | DeepSeek **account** sign-in from a remote browser: loads [dsh-remote-signin](https://github.com/MeiXu6693/dsh-remote-signin), which puts the paste panel into the page. `off` = upstream's loopback-only behaviour. |
-| `PUID` · `PGID` | `1000` · `1000` | The uid:gid everything runs as, and the ownership the writable paths are handed to at start. Match whatever already owns your `/data`; **on Unraid that is `99` · `100`** (see [On Unraid](#on-unraid)). |
+| `PUID` · `PGID` | `1000` · `1000` | The uid:gid everything runs as, and the ownership the writable paths are handed to at start. Match whatever already owns your `/data`; **on Unraid that is `99` · `100`** (see [On Unraid](#on-unraid)). `0` is accepted too: root mode, where the agent runs as root and `/app` plus the volumes become writable — only for plugins that rewrite host files in place (dsh-purge and its forks). The image's non-root isolation does not apply in that mode; keep `99:100`/`1000:1000` for normal use. |
 | `UMASK` | `022` | File mode mask for the processes the container starts; `002` for a group-writable workspace. |
 | `TZ` | `Asia/Shanghai` in `compose.yaml` | Container time zone. |
 
@@ -171,7 +171,7 @@ for scope and deployment guidance.
 | Symptom | Fix |
 |---|---|
 | “dsh web authentication required; reopen the URL printed by dsh web” | **Just reload the page.** The browser is holding a session cookie this DSH no longer accepts (it happens after an image update, a container recreation, or another DSH on the same host — cookies ignore ports). The container notices and renews the session by itself; opening `http://<host>:<port>/renew` manually, or clearing that site's cookies, does the same thing. |
-| A tool reports `SANDBOX_UNAVAILABLE` | The two `--security-opt` values are missing from your run command (they live in `Extra Parameters` on Unraid). Put them back. When you check, two things mislead people: `systempaths=unconfined` never appears in `docker inspect`'s `SecurityOpt` (it shows up as empty `MaskedPaths`/`ReadonlyPaths` instead), and bwrap only works as the **unprivileged identity DSH runs as** — `PUID:PGID`, `1000:1000` unless you changed it. Test the way DSH does: `docker exec -u <PUID>:<PGID> <container> bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true` → exit 0. Run as root (`docker exec`'s default) it always fails with *Creating new namespace failed*, which says nothing about the container. `--cap-add SYS_ADMIN` and `--privileged` are not needed, and both weaken the container. |
+| A tool reports `SANDBOX_UNAVAILABLE` | The two `--security-opt` values are missing from your run command (they live in `Extra Parameters` on Unraid). Put them back. When you check, two things mislead people: `systempaths=unconfined` never appears in `docker inspect`'s `SecurityOpt` (it shows up as empty `MaskedPaths`/`ReadonlyPaths` instead), and bwrap only works as the **unprivileged identity DSH runs as** — `PUID:PGID`, `1000:1000` unless you changed it. Test the way DSH does: `docker exec -u <PUID>:<PGID> <container> bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true` → exit 0. Run as root (`docker exec`'s default) it always fails with *Creating new namespace failed*, which says nothing about the container. `--cap-add SYS_ADMIN` and `--privileged` are not needed, and both weaken the container. Conversely, setting `PUID=0` (root mode) lands in this same row: bwrap does not run as root, so the command sandbox is unavailable. |
 | `EACCES` / `Permission denied` on `/data/...` after an install you did by hand | The install ran as root: `docker exec` defaults to the container's root, even for `dsh plugin`. The start after it hands the volume back to `PUID:PGID` and says so in `docker logs`; redo the install with `docker exec -u <PUID>:<PGID> …` so it does not come back. |
 | Files in `appdata` keep changing owner, or a second container "steals" the volume | One volume, one container: two containers with different `PUID`/`PGID` on the same `/data` rewrite each other's ownership at every start. Give each its own volume, or give them the same pair. |
 | The browser gets `403` | Your address is not in `ALLOWED_CLIENTS`; a plain `docker run` allows loopback only. |

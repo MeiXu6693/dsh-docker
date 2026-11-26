@@ -44,6 +44,7 @@ FAILURES=0
 
 cleanup() {
     docker rm -f "${NAME}" >/dev/null 2>&1 || true
+    docker rm -f "${NAME}-puid" "${NAME}-root" >/dev/null 2>&1 || true
     # The container hands the bind mounts to PUID:PGID (1000:1000 by default), which the
     # runner user is not, so the plain rm can fail; try sudo before giving up.
     rm -rf "${WORKDIR}" 2>/dev/null || sudo rm -rf "${WORKDIR}" 2>/dev/null || true
@@ -648,11 +649,12 @@ else
 fi
 docker rm -f "${IDENT_NAME}" >/dev/null 2>&1 || true
 
-# Each has to be *refused*, and the refusal has to be the entrypoint's own: a container
-# that starts anyway keeps running until the timeout (exit 124), and a container that
-# stops for some other reason says so in its log — the positive assertion is that DSH
+# A non-integer is still refused, and the refusal has to be the entrypoint's own: a
+# container that starts anyway keeps running until the timeout (exit 124), and a container
+# that stops for some other reason says so in its log — the positive assertion is that DSH
 # never got as far as starting. `--no-healthcheck`: nothing here should serve anything.
-for bad in 'PUID=0:PUID must not be 0' 'PGID=0:PGID must not be 0' 'PUID=abc:PUID must be a positive integer'; do
+# 0 is no longer in this list: it is accepted on request and asserted below.
+for bad in 'PUID=abc:PUID must be a non-negative integer'; do
     bad_env="${bad%%:*}"
     bad_want="${bad#*:}"
     bad_log="$(timeout 30 docker run --rm --no-healthcheck \
@@ -665,6 +667,70 @@ for bad in 'PUID=0:PUID must not be 0' 'PGID=0:PGID must not be 0' 'PUID=abc:PUI
         fail "${bad_env} did not stop the container with its own message"
     fi
 done
+
+# 5e — root mode. `PUID=0 PGID=0` is the one configuration where the image's own
+# installation is writable by the account DSH runs as, which is what a host-patching
+# plugin (dsh-purge and its forks) needs; the entrypoint warns instead of refusing.
+# Assert the warning, the identity, and the capability — a container that serves but
+# still cannot write /app would not fix the plugin that motivated the mode.
+ROOT_NAME="${NAME}-root"
+ROOT_PORT=$((PORT + 7))
+ROOT_DATA="${WORKDIR}/data-root"
+mkdir -p "${ROOT_DATA}" "${WORKDIR}/workspace-root"
+docker run --detach --name "${ROOT_NAME}" \
+    --env 'ALLOWED_CLIENTS=127.0.0.1,172.16.0.0/12' \
+    --env 'PUID=0' \
+    --env 'PGID=0' \
+    --env 'DSH_PASSWORD=smoke-test-password' \
+    --env 'REMOTE_SIGNIN=off' \
+    --publish "127.0.0.1:${ROOT_PORT}:8080" \
+    --volume "${ROOT_DATA}:/data" \
+    --volume "${WORKDIR}/workspace-root:/workspace" \
+    "${IMAGE}" >/dev/null
+
+root_code=""
+root_served=0
+for _ in $(seq 1 30); do
+    if docker logs "${ROOT_NAME}" 2>&1 | grep --quiet 'starting Caddy'; then
+        root_code="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
+            "${SMOKE_AUTH[@]}" "http://127.0.0.1:${ROOT_PORT}/" 2>/dev/null || true)"
+        [[ "${root_code}" =~ ^[1-4][0-9]{2}$ ]] && { root_served=1; break; }
+    fi
+    sleep 2
+done
+if (( root_served == 1 )); then
+    pass 'PUID=0 PGID=0 starts and serves the app'
+else
+    fail "PUID=0 PGID=0 did not serve the app (HTTP ${root_code:-none}); last log: $(docker logs "${ROOT_NAME}" 2>&1 | tail -n 3 | tr '\n' ' ')"
+fi
+if docker logs "${ROOT_NAME}" 2>&1 | grep --quiet 'PUID=0: DSH runs as root'; then
+    pass 'PUID=0 warns that root mode gives up the non-root isolation'
+else
+    fail 'PUID=0 started without its warning'
+fi
+# The uid of the process DSH actually runs as, read from its own /proc entry: `docker
+# exec` defaults to the container's root, so asserting that would prove nothing.
+root_dsh_uid="$(docker exec "${ROOT_NAME}" sh -c 'for f in /proc/[0-9]*/status; do if tr "\0" " " < "${f%/status}/cmdline" 2>/dev/null | grep --quiet "dsh/lib/bin.js"; then sed -n "s/^Uid:[[:space:]]*\([0-9]*\).*/\1/p" "$f"; fi; done' 2>/dev/null | head -n 1)"
+if [[ "${root_dsh_uid}" == '0' ]]; then
+    pass 'PUID=0 runs the DSH process as root'
+else
+    fail "PUID=0 ran the DSH process as uid '${root_dsh_uid:-unknown}', not 0"
+fi
+if docker exec --user 0:0 "${ROOT_NAME}" sh -c 'printf probe > /app/node_modules/@deepseek-ai/.smoke-write' 2>/dev/null; then
+    pass '/app accepts a write from the account DSH runs as in root mode'
+    docker exec --user 0:0 "${ROOT_NAME}" rm -f /app/node_modules/@deepseek-ai/.smoke-write >/dev/null 2>&1 || true
+else
+    fail '/app is not writable in root mode; dsh-purge would still fail its host backup'
+fi
+# Recorded, not asserted: whether root mode keeps the command sandbox is the one thing
+# this block cannot decide for every host — bwrap refuses to run as root on the kernels
+# this image targets, and README says so. The CI log should still show the answer.
+if docker exec --user 0:0 "${ROOT_NAME}" bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true >/dev/null 2>&1; then
+    note 'bwrap runs as root here: root mode keeps the command sandbox'
+else
+    note 'bwrap refuses root here: root mode runs without the command sandbox (as documented in README)'
+fi
+docker rm -f "${ROOT_NAME}" >/dev/null 2>&1 || true
 
 # 6 — both Caddy configs must validate
 for config in edge lan; do

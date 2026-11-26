@@ -90,6 +90,7 @@ Range 请求、事件流及 WebSocket 升级不在策略范围内。已有上游
 ## 容器本身
 
 - 以 uid/gid `1000` 运行（镜像内的非 root 账户），启动时把 `/data`、`/workspace` 的属主调整为 `1000:1000` 再降权。
+- `PUID=0` / `PGID=0` 按需允许（root 模式）：DSH 以容器内 root 运行，`/app` 与卷都可写，本节描述的非 root 属性在该模式下不成立。它只为需要原地改镜像内安装的宿主补丁类插件（如 dsh-purge）准备；entrypoint 启动时会告警，切回普通 `PUID` 会重新接管 `/data` 属主。
 - **不挂载** docker socket、`/boot` 或任何宿主目录（除用户显式映射的两个卷）。
 - **启动不需要任何密钥**：模型凭据由你在应用界面里配置，存放在 `/data`。
 - `AUTH_MODE=builtin`（默认）在容器内提供口令门禁：口令只用于换取一个 HMAC 门禁 Cookie（同时覆盖普通请求与 WebSocket 握手），`/healthz` 保持免认证；改口令或删除 `/data/caddy/data/auth-gate-salt` 会让已签发的 Cookie 全部失效。

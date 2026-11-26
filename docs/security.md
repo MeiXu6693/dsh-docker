@@ -99,6 +99,7 @@ absence of compression side channels.
 ## The container itself
 
 - Runs as uid/gid `1000` (the non-root account inside the image), and at startup adjusts the owner of `/data` and `/workspace` to `1000:1000` before dropping privileges.
+- `PUID=0` / `PGID=0` is accepted on request (root mode): DSH then runs as root inside the container, `/app` and the volumes become writable by the agent, and the non-root property in this section does not hold. It exists so host-patching plugins (dsh-purge and its forks) can rewrite the image's own installation in place; the entrypoint warns at start, and switching back to a normal `PUID` re-chowns `/data`.
 - **Does not mount** the docker socket, `/boot`, or any host directory (apart from the two volumes the user explicitly maps).
 - **No secret has to be supplied to start it**: model credentials are configured by you in the app UI and stored in `/data`.
 - `AUTH_MODE=builtin` (the default) provides the password gate inside the container: the password is used only to exchange for an HMAC gate cookie (which covers both ordinary requests and the WebSocket handshake), and `/healthz` stays unauthenticated; changing the password or deleting `/data/caddy/data/auth-gate-salt` invalidates every issued cookie.

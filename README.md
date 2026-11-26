@@ -35,7 +35,7 @@ Unraid 用户可在 **Apps** 中搜索并安装 **DSH**，设置数据目录、�
    curl -fsSLO https://raw.githubusercontent.com/MeiXu6693/dsh-docker/main/compose.yaml
    ```
 
-2. 在同一目录新建或编辑 `.env`，设置你自己的登录密码。密码至少 8 个字符，不能包含空白；
+2. 在同一目录新建或编辑 `.env`，设置你自己的登录密码。密码不能为空、不能含空白字符（门禁把它当作单个命令行参数做哈希）；
    妥善保护此文件。默认用户名是 `dsh`。
 
    ```dotenv
@@ -83,7 +83,7 @@ docker run -d --name dsh --restart unless-stopped -p 8080:8080 \
 | `DSH_PASSWORD` | 未设 | 口令门禁的密码（也可用 `DSH_PASSWORD_FILE`）。默认 `AUTH_MODE=builtin` 时必填；可设置此项，或通过 `DSH_PASSWORD_FILE` 提供。 |
 | `AUTH_USER` | `dsh` | 口令门禁的用户名。 |
 | `REMOTE_SIGNIN` | `on` | 远程浏览器用 DeepSeek **账号**登录：加载 [dsh-remote-signin](https://github.com/MeiXu6693/dsh-remote-signin)，由它把粘贴面板注入页面。`off` = 回到上游「仅回环」行为。 |
-| `PUID` · `PGID` | `1000` · `1000` | 容器一切进程的运行 uid:gid，也是启动时把可写路径交出去的属主。填**已经拥有你 `/data` 的那个身份**；**Unraid 上是 `99` · `100`**（见[在 Unraid 上](#在-unraid-上)）。 |
+| `PUID` · `PGID` | `1000` · `1000` | 容器一切进程的运行 uid:gid，也是启动时把可写路径交出去的属主。填**已经拥有你 `/data` 的那个身份**；**Unraid 上是 `99` · `100`**（见[在 Unraid 上](#在-unraid-上)）。也接受 `0`：那是 root 模式，agent 会以 root 运行、`/app` 与卷都可写——只为需要原地改宿主文件的插件（如 dsh-purge）准备，镜像的非 root 隔离在该模式下不成立，日常请保持 `99:100`/`1000:1000`。 |
 | `UMASK` | `022` | 容器启动的进程的文件权限掩码；共享可写工作区用 `002`。 |
 | `TZ` | `compose.yaml` 里是 `Asia/Shanghai` | 容器时区。 |
 
@@ -156,7 +156,7 @@ HTTPS 响应压缩在秘密与攻击者可控文本混合时，可能产生 BREA
 | 现象 | 处理 |
 |---|---|
 | 页面提示 “dsh web authentication required; reopen the URL printed by dsh web” | **刷新页面即可。** 这是浏览器持有一个 DSH 已不再接受的会话 Cookie（镜像更新、容器重建、或同主机另一个 DSH 实例都会造成——Cookie 不区分端口）。容器自己会发现并重新签发会话；手动打开 `http://<主机>:<端口>/renew`、或清掉该站点 Cookie，效果相同。 |
-| 工具报 `SANDBOX_UNAVAILABLE` | 启动参数里少了那两个 `--security-opt`（Unraid 上它们在 **Extra Parameters** 里），补回去。自查时有两个坑：`systempaths=unconfined` **不会**出现在 `docker inspect` 的 `SecurityOpt` 里（它表现为 `MaskedPaths`/`ReadonlyPaths` 变空），而 bwrap **只在 DSH 运行的那个非特权身份下可用**——也就是 `PUID:PGID`，没改过就是 `1000:1000`。所以要按 DSH 的方式测：`docker exec -u <PUID>:<PGID> <容器> bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true` → exit 0。用 root（`docker exec` 默认身份）测必然报 *Creating new namespace failed*，那不能说明容器有问题；`--cap-add SYS_ADMIN` 与 `--privileged` 都不需要，而且都会削弱容器隔离。 |
+| 工具报 `SANDBOX_UNAVAILABLE` | 启动参数里少了那两个 `--security-opt`（Unraid 上它们在 **Extra Parameters** 里），补回去。自查时有两个坑：`systempaths=unconfined` **不会**出现在 `docker inspect` 的 `SecurityOpt` 里（它表现为 `MaskedPaths`/`ReadonlyPaths` 变空），而 bwrap **只在 DSH 运行的那个非特权身份下可用**——也就是 `PUID:PGID`，没改过就是 `1000:1000`。所以要按 DSH 的方式测：`docker exec -u <PUID>:<PGID> <容器> bwrap --ro-bind / / --dev /dev --unshare-pid --proc /proc --die-with-parent -- true` → exit 0。用 root（`docker exec` 默认身份）测必然报 *Creating new namespace failed*，那不能说明容器有问题；`--cap-add SYS_ADMIN` 与 `--privileged` 都不需要，而且都会削弱容器隔离。反过来，把 `PUID` 设成 `0`（root 模式）也会落进这一条：bwrap 不以 root 运行，命令沙箱随之不可用。 |
 | 手动装完东西后 `/data/...` 报 `EACCES` / `Permission denied` | 那次安装是以 root 跑的：`docker exec` 默认就是容器里的 root，`dsh plugin` 也一样。**下一次启动会把卷的属主交回 `PUID:PGID` 并在 `docker logs` 里说明**；重做那次安装时请带 `-u <PUID>:<PGID>`，否则还会再来一遍。 |
 | `appdata` 里的属主反复变化，或第二个容器「抢」走了卷 | 一个卷只给一个容器：两个不同 `PUID`/`PGID` 的容器挂同一个 `/data`，每次启动都会互相重写属主。给它们各自的卷，或让它们用同一对身份。 |
 | 浏览器拿到 `403` | 你的地址不在 `ALLOWED_CLIENTS` 里；裸 `docker run` 默认只放行回环。 |

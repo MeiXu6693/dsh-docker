@@ -138,29 +138,39 @@ read_image_version() {
 }
 
 # PUID/PGID have to be usable before anything else happens: they decide which identity
-# owns the volumes, and a wrong value (a typo, or 0) has to be refused here rather than
-# half-applied. Refused: not a positive integer, 0 (the container's own root), 65534
-# (`nobody`, the uid a kernel hands to an unmapped one — never an identity to run an
-# agent as), and a value outside uid_t's range.
+# owns the volumes, and a wrong value (a typo) has to be refused here rather than
+# half-applied. Refused: a non-integer, 65534 (`nobody`, the uid a kernel hands to an
+# unmapped one — never an identity to run an agent as), and a value outside uid_t's range.
+#
+# 0 is accepted on request. Running DSH as the container's root is the one way a
+# host-patching plugin (dsh-purge and its forks) can rewrite files under /app: the image
+# keeps its own installation root-owned for every other PUID, which is what makes the
+# plugin's "Host backup failed" show up instead. The mode gives up the image's non-root
+# isolation — /app and the volumes become writable by the agent — so it warns here and is
+# never the default. PUID/PGID=0:0 is the supported spelling; `PGID=0` on its own only
+# joins the root group and buys nothing on this image, so it warns too.
 #
 # Numbers that merely *collide with a name* are accepted on purpose, and that is a
 # correction: the obvious check ("refuse a uid the image's own system accounts hold")
 # refuses the very deployment this feature exists for, because Debian's gid 100 is
 # literally called `users`. Unraid's appdata is 99:100. A uid:gid pair is a number — the
 # container's account database names are irrelevant to what a process owns — so the only
-# collisions worth stopping are the two that change what the process means: root and
-# nobody. The passwd entry is synthesized separately (see sync_app_account).
+# collision worth stopping is `nobody`. The passwd entry is synthesized separately (see
+# sync_app_account).
 resolve_identity() {
-    [[ "${PUID}" =~ ^[0-9]{1,10}$ ]] || fatal "PUID must be a positive integer (got '${PUID}')"
-    [[ "${PGID}" =~ ^[0-9]{1,10}$ ]] || fatal "PGID must be a positive integer (got '${PGID}')"
+    [[ "${PUID}" =~ ^[0-9]{1,10}$ ]] || fatal "PUID must be a non-negative integer (got '${PUID}')"
+    [[ "${PGID}" =~ ^[0-9]{1,10}$ ]] || fatal "PGID must be a non-negative integer (got '${PGID}')"
     APP_UID=$((10#${PUID}))
     APP_GID=$((10#${PGID}))
-    (( APP_UID > 0 )) || fatal "PUID must not be 0: the container's own root is not an identity to run the agent as"
-    (( APP_GID > 0 )) || fatal "PGID must not be 0: group 0 is root's group"
     (( APP_UID < 4294967295 )) || fatal "PUID is outside the range of uid_t (got '${PUID}')"
     (( APP_GID < 4294967295 )) || fatal "PGID is outside the range of gid_t (got '${PGID}')"
     (( APP_UID != 65534 )) || fatal "PUID must not be 65534: that is 'nobody', the identity a kernel gives to an unmapped uid — pick the uid that owns your data directory (Unraid's appdata is usually 99)"
     (( APP_GID != 65534 )) || fatal "PGID must not be 65534: that is 'nogroup' — pick the gid that owns your data directory (Unraid's appdata is usually 100)"
+    if (( APP_UID == 0 )); then
+        warn "PUID=0: DSH runs as root inside this container — /app and every volume are writable by the agent, and switching PUID back later re-chowns /data. The image's non-root isolation does not apply in this mode"
+    elif (( APP_GID == 0 )); then
+        warn "PGID=0: the DSH process joins the root group; prefer a dedicated gid unless a host-patching plugin needs it"
+    fi
 }
 
 validate_umask() {
@@ -314,8 +324,6 @@ for entry in "${allowed_entries[@]}"; do
         fatal "ALLOWED_CLIENTS entries must be IP addresses, CIDRs or hostnames (got '${entry}')"
     fi
 done
-(( ${#ALLOWED_IPS[@]} <= 32 )) || fatal "ALLOWED_CLIENTS lists too many addresses"
-(( ${#ALLOWED_HOSTS[@]} <= 32 )) || fatal "ALLOWED_CLIENTS lists too many hostnames"
 
 # TRUSTED_PROXY_CIDRS — optional. When a reverse proxy sits in front, list its
 # addresses here and Caddy will read the real client address from
@@ -333,7 +341,6 @@ if [[ -n "${TRUSTED_PROXY_CIDRS}" ]]; then
             || fatal "TRUSTED_PROXY_CIDRS entries must be IP addresses or CIDRs (got '${entry}')"
         TRUSTED_PROXY_LIST+=("${entry}")
     done
-    (( ${#TRUSTED_PROXY_LIST[@]} <= 16 )) || fatal "TRUSTED_PROXY_CIDRS lists too many entries"
 fi
 
 # ---------------------------------------------------------------- validation
@@ -480,8 +487,8 @@ if [[ "${AUTH_MODE}" == "builtin" ]]; then
     else
         fatal "AUTH_MODE=builtin requires a password: set DSH_PASSWORD or DSH_PASSWORD_FILE, or set AUTH_MODE=none when an authenticating proxy is in front"
     fi
-    (( ${#password} >= 8 )) || fatal "the password must be at least 8 characters (got ${#password}); set DSH_PASSWORD or DSH_PASSWORD_FILE"
-    [[ ! "${password}" =~ [[:space:]] ]] || fatal "the password must not contain whitespace"
+    [[ -n "${password}" ]] || fatal "the password is empty: AUTH_MODE=builtin needs a non-empty DSH_PASSWORD or DSH_PASSWORD_FILE, or AUTH_MODE=none to delegate authentication"
+    [[ ! "${password}" =~ [[:space:]] ]] || fatal "the password contains whitespace: the gate hashes it as one command-line argument, so spaces, tabs and newlines are refused — choose a password without them"
 # The user name ends up as a token in the Caddyfile (user hash) and is shown in the
 # browser's login prompt, so keep it to something that cannot break the directive.
 [[ "${AUTH_USER}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
@@ -657,7 +664,7 @@ DSH_PID=$!
 
 wait_for_dsh() {
     local status
-    for _ in $(seq 1 60); do
+    for _ in $(seq 1 120); do
         if ! kill -0 "${DSH_PID}" 2>/dev/null; then
             wait "${DSH_PID}" || true
             fatal "DeepSeek Harness exited before it became ready; see the log above"
@@ -667,12 +674,12 @@ wait_for_dsh() {
         [[ "${status}" =~ ^[1-4][0-9]{2}$ ]] && return 0
         sleep 1
     done
-    fatal "DeepSeek Harness did not become ready within 60 seconds"
+    fatal "DeepSeek Harness did not become ready within 120 seconds"
 }
 
 resolve_launch_token() {
     local line
-    for _ in $(seq 1 60); do
+    for _ in $(seq 1 120); do
         while IFS= read -r line; do
             if [[ "${line}" =~ ^dsh\ web:.*token=([A-Za-z0-9_.-]{16,512}) ]]; then
                 DSH_LAUNCH_TOKEN="${BASH_REMATCH[1]}"
@@ -690,7 +697,7 @@ resolve_launch_token() {
     done
     printf '[entrypoint] no launch token found; last lines of the DSH startup log:\n' >&2
     tail -n 40 "${DSH_STARTUP_LOG}" >&2 || true
-    fatal "DeepSeek Harness did not publish a launch token within 60 seconds"
+    fatal "DeepSeek Harness did not publish a launch token within 120 seconds"
 }
 
 wait_for_dsh
