@@ -654,7 +654,7 @@ docker rm -f "${IDENT_NAME}" >/dev/null 2>&1 || true
 # that stops for some other reason says so in its log — the positive assertion is that DSH
 # never got as far as starting. `--no-healthcheck`: nothing here should serve anything.
 # 0 is no longer in this list: it is accepted on request and asserted below.
-for bad in 'PUID=abc:PUID must be a non-negative integer'; do
+for bad in 'PUID=abc:PUID must be a non-negative integer' 'PGID=abc:PGID must be a non-negative integer'; do
     bad_env="${bad%%:*}"
     bad_want="${bad#*:}"
     bad_log="$(timeout 30 docker run --rm --no-healthcheck \
