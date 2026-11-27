@@ -139,6 +139,14 @@ never masquerades as the default (measured 2026-11-26: npm `latest`=0.2.2-rc.5 w
 yet, smoke-testing it first; point your container at `:alpha` to follow the alpha channel,
 or pin a version tag or digest to move on your own schedule.
 
+**This switch affects containers that already exist.** Before 2026-11-26 this image's
+`:latest` was briefly 0.2.3-alpha.2, which really was the newest prerelease then, so a
+container installed in that window falls back to 0.2.2-rc.5 on *Force update*. To stay on
+the alpha line, point the image at `:alpha` (Unraid: Docker → the container → **Edit** →
+**Repository** → **Apply**); `/data` and `/workspace` are untouched. To stay on the build
+you have, use `:0.2.3-alpha.2` or its digest. Back up `/data` before moving across
+versions — upstream makes no promise that an older release reads a newer profile.
+
 The shared compression policy takes effect after pulling an image that contains it and
 recreating the container; no new setting or dependency is required. It reduces transfer
 size, with gains depending on content, bandwidth and available CPU; it does not accelerate
